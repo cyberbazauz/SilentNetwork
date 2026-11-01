@@ -36,6 +36,8 @@ from snlab.receiver import (
     SyncWordError,
     bit_metric,
     decode_wav,
+    demodulate_samples,
+    demodulate_wav,
 )
 from snlab.wavio import WavFormatError, write_pcm16
 
@@ -431,3 +433,74 @@ def test_cli_unwritable_output_returns_3(tmp_path: Path) -> None:
         receiver.main(["--in", str(path), "--out", str(directory)])
         == receiver.EXIT_INPUT
     )
+
+
+# --- SN-013: диагностическая демодуляция до CRC -------------------------
+
+
+def test_demodulate_wav_returns_all_frame_bits(tmp_path: Path) -> None:
+    path, frame = make_wav(tmp_path, b"DIAGNOSTIC")
+
+    diagnostic = demodulate_wav(path, PROFILE)
+
+    assert diagnostic.complete
+    assert diagnostic.read_bits == frame.total_bits
+    assert diagnostic.declared_payload_bytes == len(frame.payload)
+    assert diagnostic.declared_length_valid
+    assert diagnostic.preamble_matches == PREAMBLE_BITS
+    np.testing.assert_array_equal(diagnostic.bits, frame.bits)
+
+
+def test_demodulate_returns_bits_when_crc_is_broken(tmp_path: Path) -> None:
+    frame = build_frame(b"CRC-BROKEN")
+    bits = frame.bits.copy()
+    bits[-1] ^= 1
+    path = tmp_path / "bad-crc.wav"
+    write_bits(path, bits)
+
+    with pytest.raises(CrcError):
+        decode_wav(path, PROFILE)
+
+    diagnostic = demodulate_wav(path, PROFILE)
+    assert diagnostic.read_bits == bits.size
+    np.testing.assert_array_equal(diagnostic.bits, bits)
+
+
+def test_demodulate_with_leading_silence_returns_frame_bits(tmp_path: Path) -> None:
+    path, frame = make_wav(tmp_path, b"LEAD-DIAG", leading=4_800)
+
+    diagnostic = demodulate_wav(path, PROFILE)
+
+    assert diagnostic.start_sample == 4_800
+    assert diagnostic.complete
+    np.testing.assert_array_equal(diagnostic.bits, frame.bits)
+
+
+def test_demodulate_silence_raises_signal_not_found(tmp_path: Path) -> None:
+    path = tmp_path / "silence.wav"
+    write_pcm16(path, np.zeros(PROFILE.sample_rate), PROFILE.sample_rate)
+
+    with pytest.raises(SignalNotFound):
+        demodulate_wav(path, PROFILE)
+
+
+def test_demodulate_empty_wav_raises_wav_format(tmp_path: Path) -> None:
+    path = tmp_path / "empty.wav"
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(PROFILE.sample_rate)
+        wav_file.writeframes(b"")
+
+    with pytest.raises(WavFormatError, match="не содержит"):
+        demodulate_wav(path, PROFILE)
+
+
+def test_demodulate_samples_does_not_accept_reference_bits() -> None:
+    frame = build_frame(b"NO-REF")
+    samples = modulate(frame.bits, PROFILE).samples
+
+    diagnostic = demodulate_samples(samples, PROFILE)
+
+    assert diagnostic.declared_payload_bytes == len(frame.payload)
+    np.testing.assert_array_equal(diagnostic.bits, frame.bits)

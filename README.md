@@ -19,6 +19,7 @@
 | Acoustic Lab: сканер устройств и фона | реализован, реальный захват 10 с проверен (SN-010) |
 | Acoustic Lab: BFSK-передатчик (WAV) | реализован, 20/20 одинаковых SHA-256 (SN-011) |
 | Acoustic Lab: BFSK-приёмник (WAV) | реализован, файловый round-trip и проверка CRC (SN-021) |
+| Acoustic Lab: BER/PER benchmark (AWGN) | реализован, M0-6 100/100 при 15 дБ (SN-013) |
 | Реальная передача Windows ↔ Windows | не выполнялась |
 | Rust Core, SCNP, криптография | не реализованы |
 | Android-приложение | не реализовано (зона Gemini) |
@@ -44,7 +45,7 @@ SilentNetwork/
     ├── scanner.py                # SN-010, реализован
     ├── transmitter.py            # SN-011, реализован
     ├── receiver.py               # SN-021, реализован
-    └── benchmark.py              # SN-013 (пока только интерфейс)
+    └── benchmark.py              # SN-013, реализован
 ```
 
 `docs/architecture.md`, `docs/protocol-spec.md`, `docs/security-model.md` и
@@ -63,13 +64,16 @@ python -m pip install -r requirements.txt
 python -m pytest tests -q
 ```
 
-Все тесты проверяют инфраструктуру (конфигурацию, WAV, метрики, AWGN),
-анализаторы сканера, BFSK-передатчик и файловый BFSK-приёмник; аудиобэкенд в
-тестах подменяется фейком, реальный микрофон и динамик не открываются.
+Все тесты проверяют инфраструктуру (конфигурацию, WAV, метрики, AWGN и
+активную область сигнала), анализаторы сканера, BFSK-передатчик, файловый
+BFSK-приёмник и BER/PER benchmark; аудиобэкенд в тестах подменяется фейком,
+реальный микрофон и динамик не открываются.
 
 ## Документы
 
-- `docs/current-milestone.md` — milestone M0 и 11 измеримых критериев приёмки.
+- `docs/current-milestone.md` — milestone M0, 11 измеримых критериев и
+  фактические результаты SN-013.
+- `acoustic-lab/results/M0-report.md` — отчёт BER/PER на AWGN и M0-6.
 - `docs/decisions/ADR-001-acoustic-frame-v1.md` — формат кадра, CRC-16 и
   BFSK-модуляция Acoustic Lab.
 - `docs/audit/2026-11-01-repository-audit.md` — состояние репозитория,

@@ -1,11 +1,8 @@
-"""Smoke-тесты интерфейса командной строки.
+"""Smoke-тесты интерфейса командной строки Acoustic Lab.
 
-Для инструментов, реализация которых ещё не начата, проверяется явное
-поведение заглушек: `--help` работает, запуск возвращает код 2 и называет
-задачу. Ни один тест не утверждает, что измерения или передача выполнены.
-
-scanner.py реализован в SN-010 (`test_scanner.py`), transmitter.py — в SN-011
-(`test_transmitter.py`), receiver.py — в SN-021 (`test_receiver.py`).
+Все четыре инструмента реализованы; здесь проверяется только общий контракт
+`--help` и то, что запуск без обязательных аргументов не выдаёт себя за
+успешный эксперимент. Функциональные тесты находятся в профильных файлах.
 """
 
 from __future__ import annotations
@@ -13,11 +10,14 @@ from __future__ import annotations
 import pytest
 
 import benchmark
+import receiver
+import scanner
+import transmitter
 
-STUBS = [benchmark]
+TOOLS = [scanner, transmitter, receiver, benchmark]
 
 
-@pytest.mark.parametrize("module", STUBS, ids=lambda module: module.TOOL_NAME)
+@pytest.mark.parametrize("module", TOOLS, ids=lambda module: module.TOOL_NAME)
 def test_help_exits_zero(module, capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         module.main(["--help"])
@@ -25,9 +25,15 @@ def test_help_exits_zero(module, capsys: pytest.CaptureFixture[str]) -> None:
     assert "usage:" in capsys.readouterr().out.lower()
 
 
-@pytest.mark.parametrize("module", STUBS, ids=lambda module: module.TOOL_NAME)
-def test_unimplemented_tool_reports_task(
+@pytest.mark.parametrize(
+    "module",
+    [transmitter, receiver],
+    ids=lambda module: module.TOOL_NAME,
+)
+def test_required_arguments_are_enforced(
     module, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert module.main([]) == 2
-    assert module.TASK_ID in capsys.readouterr().err
+    with pytest.raises(SystemExit) as excinfo:
+        module.main([])
+    assert excinfo.value.code == 2
+    assert "usage:" in capsys.readouterr().err.lower()

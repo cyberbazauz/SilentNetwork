@@ -133,6 +133,45 @@ class DecodedFrame:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class DemodulatedBits:
+    """Диагностический результат демодуляции до проверки CRC.
+
+    Это не восстановленный кадр. Биты возвращаются для измерения BER в
+    benchmark и не подтверждают целостность payload. Даже если CRC не
+    совпадёт, диагностика покажет, какие биты были демодулированы.
+    """
+
+    bits: np.ndarray
+    start_sample: int
+    preamble_matches: int
+    symbols_available: int
+    declared_payload_bytes: int | None
+    declared_total_bits: int | None
+    declared_length_valid: bool | None
+    complete: bool
+    profile_name: str
+    total_samples: int
+
+    @property
+    def read_bits(self) -> int:
+        """Сколько бит реально удалось демодулировать."""
+        return int(self.bits.size)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Диагностические поля без CRC и без исходных бит передатчика."""
+        return {
+            "start_sample": self.start_sample,
+            "preamble_matches": self.preamble_matches,
+            "symbols_available": self.symbols_available,
+            "read_bits": self.read_bits,
+            "declared_payload_bytes": self.declared_payload_bytes,
+            "declared_total_bits": self.declared_total_bits,
+            "declared_length_valid": self.declared_length_valid,
+            "complete": self.complete,
+        }
+
+
 def decode_wav(
     path: str | Path,
     profile: BfskProfile,
@@ -172,6 +211,93 @@ def decode_samples(
     metric = bit_metric(samples, profile)
     start = find_frame_start(metric, profile)
     return decode_from_metric(metric, profile, start, max_payload_bytes=max_payload_bytes)
+
+
+def demodulate_wav(
+    path: str | Path,
+    profile: BfskProfile,
+    *,
+    max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+) -> DemodulatedBits:
+    """Прочитать WAV и вернуть демодулированные биты до проверки CRC.
+
+    Контракт `decode_wav(path, profile)` не меняется. Эта функция нужна
+    benchmark для BER: она не получает исходные биты передатчика и не
+    объявляет payload восстановленным.
+    """
+    samples, _ = read_pcm16(path, expected_sample_rate=profile.sample_rate)
+    return demodulate_samples(
+        samples,
+        profile,
+        max_payload_bytes=max_payload_bytes,
+    )
+
+
+def demodulate_samples(
+    samples: np.ndarray,
+    profile: BfskProfile,
+    *,
+    max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+) -> DemodulatedBits:
+    """Демодулировать доступные символы, не проверяя CRC и не подменяя кадр.
+
+    Начало кадра по-прежнему ищется только по преамбуле. Если преамбула не
+    найдена, выбрасывается `SignalNotFound`; если найдена, возвращаются все
+    доступные биты (не больше объявленной длины кадра). Версия, sync word,
+    длина и CRC здесь не являются условием возврата: это диагностика до CRC.
+
+    Raises:
+        SignalNotFound: преамбула не найдена.
+        ReceiverError: сигнал не одномерный или содержит NaN/бесконечность.
+    """
+    metric = bit_metric(samples, profile)
+    start = find_frame_start(metric, profile)
+    symbols_per_bit = profile.samples_per_symbol
+    symbols_available = max(
+        0, (metric.size - start.sample + symbols_per_bit - 1) // symbols_per_bit
+    )
+
+    header_count = min(symbols_available, HEADER_BITS)
+    header = _read_symbols(metric, start.sample, header_count, symbols_per_bit)
+
+    declared_payload_bytes: int | None = None
+    declared_total_bits: int | None = None
+    declared_length_valid: bool | None = None
+    if header_count == HEADER_BITS:
+        length_offset = PREAMBLE_BITS + SYNC_BITS + VERSION_BITS
+        length = int.from_bytes(
+            bits_to_bytes(header[length_offset : length_offset + LENGTH_BITS]), "big"
+        )
+        declared_payload_bytes = length
+        declared_total_bits = FRAME_OVERHEAD_BITS + length * 8
+        declared_length_valid = 1 <= length <= max_payload_bytes
+
+    frame_start = start.sample
+    if declared_total_bits is not None:
+        frame_start = _fit_frame_start(
+            metric, start.sample, declared_total_bits, symbols_per_bit
+        )
+        symbols_available = max(
+            0, (metric.size - frame_start + symbols_per_bit - 1) // symbols_per_bit
+        )
+
+    read_count = symbols_available
+    if declared_total_bits is not None:
+        read_count = min(read_count, declared_total_bits)
+    bits = _read_symbols(metric, frame_start, read_count, symbols_per_bit)
+
+    return DemodulatedBits(
+        bits=bits,
+        start_sample=frame_start,
+        preamble_matches=start.preamble_matches,
+        symbols_available=symbols_available,
+        declared_payload_bytes=declared_payload_bytes,
+        declared_total_bits=declared_total_bits,
+        declared_length_valid=declared_length_valid,
+        complete=declared_total_bits is not None and read_count == declared_total_bits,
+        profile_name=profile.name,
+        total_samples=metric.size + symbols_per_bit - 1,
+    )
 
 
 def decode_from_metric(
@@ -384,6 +510,19 @@ def _fit_frame_start(
     if not np.array_equal(header[:PREAMBLE_BITS], expected):
         return start
     return latest
+
+
+def _read_symbols(
+    metric: np.ndarray,
+    start: int,
+    count: int,
+    symbols_per_bit: int,
+) -> np.ndarray:
+    """Прочитать ровно `count` символов из метрики без проверки границ кадра."""
+    if count <= 0:
+        return np.empty(0, dtype=np.uint8)
+    indices = start + np.arange(count, dtype=np.int64) * symbols_per_bit
+    return (metric[indices] > 0).astype(np.uint8)
 
 
 def _read_bits(
