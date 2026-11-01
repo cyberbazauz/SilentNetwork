@@ -1,0 +1,59 @@
+# SilentNetwork — правила исключения артефактов
+#
+# В репозиторий не попадают: виртуальные окружения, кеши, реальные аудиозаписи,
+# результаты экспериментов, локальные настройки, секреты, сборочные артефакты.
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.coverage
+htmlcov/
+
+# --- Acoustic Lab: результаты экспериментов ---
+# Артефакты измерений (WAV, PNG, CSV, JSON) не коммитятся.
+# Итоговые отчёты в Markdown — коммитятся.
+acoustic-lab/results/*
+!acoustic-lab/results/.gitkeep
+!acoustic-lab/results/*.md
+
+# --- Аудиофайлы ---
+# Реальные записи не храним в репозитории. Для детерминированных тестовых
+# фикстур добавляйте точечное исключение, например:
+#   !acoustic-lab/tests/fixtures/*.wav
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.m4a
+
+# --- Локальные настройки и секреты ---
+local.properties
+*.keystore
+*.jks
+.env
+.env.*
+secrets/
+
+# --- Android ---
+.gradle/
+build/
+captures/
+*.apk
+*.aab
+
+# --- Rust ---
+target/
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
