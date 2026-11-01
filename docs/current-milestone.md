@@ -1,10 +1,21 @@
 # Текущий milestone — M0
 
-**Статус:** PROPOSED — ожидает утверждения Product Owner  
+**Статус:** APPROVED WITH CONDITIONS — Product Owner, 2026-11-01. Реализация DSP не начинается до отдельного рассмотрения 11 критериев приёмки.  
 **Дата предложения:** 2026-11-01  
 **Автор:** Agent 1  
 **Связанные задачи:** SN-003, SN-005…SN-013, SN-020, SN-021  
 **Основание:** `docs/audit/2026-11-01-repository-audit.md`, Architecture v1.0 §10 (недели 1–4), §14
+
+## 0. Прогресс
+
+| Задача | Статус | Результат |
+|---|---|---|
+| SN-005 | DONE | git-репозиторий: `main` + `agent1/m0-acoustic-lab`, `.gitignore`, `.gitattributes` |
+| SN-007 | DONE | `docs/reference/SilentNetwork_Architecture_v1.0.txt`, SHA-256 сверен с оригиналом |
+| SN-006 | DONE | `README.md`, структура `docs/` |
+| SN-009 | DONE | `acoustic-lab/requirements.txt` с точными версиями, инструкция в README |
+| SN-008 | DONE | каркас `acoustic-lab/`, 52 теста проходят; DSP ещё не реализован |
+
 
 ---
 

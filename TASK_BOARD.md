@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 1.1  
+**Версия:** 1.3  
 **Дата создания:** 2026-11-01  
-**Последнее обновление:** 2026-11-01 — Agent 1, аудит SN-001 и предложение milestone M0  
+**Последнее обновление:** 2026-11-01 — Agent 1, SN-005…SN-009: git, README, Acoustic Lab каркас  
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1 и Gemini. Агент, который выполняет задачу, обновляет её статус и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -46,14 +46,14 @@
 | ID | Задача | Ответственный | Статус | Критерий приёмки / результат |
 |---|---|---|---|---|
 | SN-001 | Изучить фактическую структуру репозитория и сравнить с Architecture v1.0 | Agent 1 | REVIEW | Отчёт `docs/audit/2026-11-01-repository-audit.md`: кода нет, окружение проверено, риски и блокеры зафиксированы; ждёт проверки Product Owner |
-| SN-002 | Проверить Android-окружение, Gradle и наличие приложения | Gemini | DONE | Аудит проведён (`docs/audit/2026-11-01-android-audit.md`): Android-код отсутствует; JDK 17 (`C:\jdk-17.0.2`) и Android SDK 34/35/NDK 27 в наличии; блокер — `docs/android-core-api.md` |
-| SN-003 | Зафиксировать текущую архитектуру, открытые вопросы и первый milestone | Agent 1 | IN_PROGRESS | `docs/current-milestone.md` подготовлен как `PROPOSED`; `docs/architecture.md` ещё не создан — нужен утверждённый источник истины |
+| SN-002 | Проверить Android-окружение, Gradle и наличие приложения | Gemini | DONE | Аудит проведён (`docs/audit/android-environment-audit.md`): Android-код отсутствует; JDK 17 (`C:\jdk-17.0.2`), Android SDK 34/35/NDK 27 в наличии; тестовая сборка Debug APK успешно подтверждена; блокер — `docs/android-core-api.md` |
+| SN-003 | Зафиксировать текущую архитектуру, открытые вопросы и первый milestone | Agent 1 | IN_PROGRESS | M0 утверждён с условиями (Product Owner, 2026-11-01), 11 критериев ожидают рассмотрения; `docs/architecture.md` ещё не создан — нужно отдельное согласование структуры |
 | SN-004 | Подготовить начальную Android app skeleton, если её ещё нет | Gemini | READY | Приложение собирается; экраны/заглушки явно помечены и не имитируют связь |
-| SN-005 | Инициализировать git-репозиторий, ветку `agent1/...` и `.gitignore` | Agent 1 | BLOCKED | Нужно решение Product Owner; критерий: `git status` работает, артефакты (WAV, JSON, `__pycache__`, `.venv`) не попадают в индекс |
-| SN-006 | Добавить `README.md` и скелет `docs/` | Agent 1 | READY | README честно описывает текущее состояние; нет выдуманных возможностей; ссылки на актуальные документы |
-| SN-007 | Внести Architecture v1.0 в репозиторий как каноническую копию | Agent 1 + PO | READY | Файл в `docs/reference/`, совпадает с утверждённой версией; зафиксированы дата и контрольная сумма |
-| SN-008 | Каркас `acoustic-lab/`: `snlab/`, CLI-скрипты, pytest | Agent 1 | READY | Детерминированные тесты; генерация и разбор сигнала воспроизводимы; без заявлений о реальной передаче |
-| SN-009 | `requirements.txt` и инструкция запуска окружения | Agent 1 | READY | Точные версии Python-пакетов; установка с нуля воспроизводима |
+| SN-005 | Инициализировать git-репозиторий, ветку `agent1/...` и `.gitignore` | Agent 1 | DONE | Репозиторий создан: `main` + `agent1/m0-acoustic-lab`; `git check-ignore` подтверждает исключение результатов и аудио; `.gitattributes` сохраняет байты `docs/reference/` |
+| SN-006 | Добавить `README.md` и скелет `docs/` | Agent 1 | DONE | `README.md` и структура `docs/` созданы; описано фактическое состояние, отсутствующие модули прямо названы нереализованными |
+| SN-007 | Внести Architecture v1.0 в репозиторий как каноническую копию | Agent 1 + PO | DONE | `docs/reference/SilentNetwork_Architecture_v1.0.txt`; SHA-256 `A8849A52…E9D5` совпал с оригиналом до и после копирования |
+| SN-008 | Каркас `acoustic-lab/`: `snlab/`, CLI-скрипты, pytest | Agent 1 | DONE | `snlab/{config,wavio,metrics,channel,cli}.py`, 4 CLI-заглушки с кодом 2, 52 теста проходят; DSP ещё не реализован (SN-020/SN-021) |
+| SN-009 | `requirements.txt` и инструкция запуска окружения | Agent 1 | DONE | `acoustic-lab/requirements.txt` с точными версиями (numpy 1.26.4, scipy 1.13.1, sounddevice 0.5.6, matplotlib 3.11.2, pytest 9.1.1); инструкция в README |
 
 ### Этап 1 — Acoustic Lab и измерения
 
@@ -115,25 +115,25 @@
 **Обновлено 2026-11-01 (Agent 1).**
 
 - `SN-001` — аудит выполнен: `docs/audit/2026-11-01-repository-audit.md`. Статус `REVIEW`, ожидает проверки Product Owner.
-- `SN-003` — предложение milestone: `docs/current-milestone.md` (статус `PROPOSED`). `docs/architecture.md` не создан: сначала нужен утверждённый источник истины.
-- Кодовой базы нет: репозиторий содержит только нормативные документы. Ни один компонент Architecture v1.0 не реализован, тестов и сборки нет.
-- Ближайший milestone — **M0 «Acoustic Lab: проверяемый BFSK в файловом канале»**; реальная передача через воздух — отдельный M1.
-- Блокеры: каталог не под git (SN-005), отсутствует Rust toolchain, не подтверждён второй Windows-ПК, отсутствует контракт `docs/android-core-api.md` (для Android Core Integration).
+- `SN-003` — milestone M0 утверждён с условиями (`docs/current-milestone.md`). `docs/architecture.md` пока не создан: требуется отдельное согласование структуры.
+- `SN-005…SN-009` — выполнены: git-репозиторий, каноническая копия архитектуры, `README.md`, `requirements.txt`, каркас Acoustic Lab с 52 тестами.
+- Кодовой базы ядра по-прежнему нет: реализована только инфраструктура Acoustic Lab. Ни один компонент PHY, SCNP, криптографии или mesh не реализован.
+- Следующий шаг: Product Owner рассматривает 11 критериев приёмки M0; DSP (SN-020/SN-021) не начинается до этого решения.
+- Блокеры: второй Windows-ПК не подтверждён (нужен только для M1); Rust toolchain отложен решением Product Owner; контракт `docs/android-core-api.md` отсутствует (запрос Gemini `REQ-CORE-001`).
 
 **Обновлено 2026-11-01 (Gemini):**
 
-- `SN-002` — аудит Android выполнен: `docs/audit/2026-11-01-android-audit.md`. Статус `DONE`.
+- `SN-002` — аудит Android выполнен: `docs/audit/android-environment-audit.md`. Статус `DONE`. Проведена успешная тестовая сборка Debug APK (792 КБ) во временном каталоге за 51 с.
 - Окружение Android: JDK 17 фактически найден в `C:\jdk-17.0.2` (`$env:JAVA_HOME`), Android SDK 34/35 и NDK 27 доступны в `C:\Android\sdk`. Блокер по отсутствию JDK 17 снят.
 - В репозитории нет Android-кода. Создание скелета приложения запланировано в рамках `SN-004` (статус `READY`).
 - Оформлен технический запрос `REQ-CORE-001` к Agent 1 на разработку спецификации `docs/android-core-api.md`.
 
 ### Требует решения Product Owner
 
-1. Разрешить `git init` и создание рабочих веток (SN-005).
-2. Подтвердить каноническую версию `SilentNetwork_Architecture_v1.0.txt` и её размещение в `docs/reference/` (SN-007).
-3. Утвердить или скорректировать milestone M0 и его критерии приёмки.
-4. Принять решение по установке Rust toolchain (нужен для этапа 3). (Примечание: JDK 17 уже установлен и готов к работе).
-5. Разрешить Gemini переход к задаче SN-004 (создание Android app skeleton).
+1. Рассмотреть 11 критериев приёмки M0 (`docs/current-milestone.md` §5); до решения DSP не начинается.
+2. Согласовать структуру и содержание `docs/architecture.md` (SN-003).
+3. Подтвердить второго участника Windows ↔ Windows до начала M1.
+4. (Gemini) Разрешить переход к SN-004 — создание Android app skeleton.
 
 ## 6. Журнал изменений
 
@@ -141,7 +141,8 @@
 |---|---|---|---|
 | 2026-11-01 | Product Owner / ChatGPT | Создана начальная доска задач на основе SilentNetwork Architecture v1.0 | Версия 1.0 |
 | 2026-11-01 | Agent 1 | Аудит репозитория: `docs/audit/2026-11-01-repository-audit.md`; предложен milestone M0 `docs/current-milestone.md`; добавлены задачи SN-005…SN-009; SN-001 → REVIEW, SN-003 → IN_PROGRESS | Версия 1.1 |
-| 2026-11-01 | Gemini | Аудит Android-окружения: `docs/audit/2026-11-01-android-audit.md`; обнаружен JDK 17 (`C:\jdk-17.0.2`) и Android SDK 34/35/NDK 27; SN-002 → DONE, SN-004 → READY | Версия 1.2 |
+| 2026-11-01 | Gemini | Аудит Android-окружения: `docs/audit/android-environment-audit.md`; обнаружен JDK 17 (`C:\jdk-17.0.2`), Android SDK 34/35/NDK 27; успешный тест сборки APK; SN-002 → DONE, SN-004 → READY | Версия 1.2 |
+| 2026-11-01 | Agent 1 | SN-005…SN-009 выполнены: git-репозиторий и ветка `agent1/m0-acoustic-lab`, каноническая копия Architecture v1.0 (SHA-256 сверен), `README.md`, `requirements.txt`, каркас Acoustic Lab (52 теста); SN-005…SN-009 → DONE | Версия 1.3 |
 
 ## 7. Шаблон добавления задачи
 
