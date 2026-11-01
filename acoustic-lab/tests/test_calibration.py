@@ -222,6 +222,26 @@ def test_analysis_detects_frequency_offset() -> None:
     assert analysis.verdict == "FAIL"
 
 
+def test_analysis_keeps_tone_when_frequency_shift_is_large() -> None:
+    """Большое смещение частоты не должно ломать выбор окна тона."""
+    plan = make_plan()
+    capture = make_capture(plan, shift_hz=100.0)
+
+    analysis = calibration.analyze_capture(
+        capture,
+        SAMPLE_RATE,
+        plan,
+        max_offset_hz=50.0,
+    )
+
+    for tone in analysis.tones:
+        assert tone.detected is True
+        assert tone.snr_db is not None and tone.snr_db > 40.0
+        assert tone.frequency_offset_hz == pytest.approx(100.0, abs=1.0)
+        assert tone.supported is False
+        assert tone.reason == "frequency_offset"
+
+
 def test_analysis_flags_clipping() -> None:
     plan = make_plan()
     capture = calibration.generate_signal(plan) * 3.0

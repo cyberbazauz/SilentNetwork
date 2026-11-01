@@ -1,6 +1,6 @@
 # Текущий milestone — M0
 
-**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021 и SN-013; технические критерии M0 покрыты, формальное закрытие — за Product Owner.  
+**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021, SN-013, SN-012 и код SN-014 (физическая калибровка — `PENDING`); технические критерии M0 покрыты, формальное закрытие — за Product Owner.  
 **Дата предложения:** 2026-11-01  
 **Автор:** Agent 1  
 **Связанные задачи:** SN-003, SN-005…SN-013, SN-020, SN-021  
@@ -19,6 +19,8 @@
 | SN-011 | DONE | `snlab/frame.py` + `snlab/bfsk.py` + `transmitter.py`: кадр с преамбулой/CRC-16, CPFSK, рампы, PCM16 WAV и JSON; 53 новых теста (153 всего); 20/20 запусков дали одинаковые PCM и WAV SHA-256; ADR-001 |
 | SN-021 | DONE (файловая часть) | `snlab/receiver.py` + `receiver.py`: поиск преамбулы 32/32, уточнение начала, некогерентная демодуляция CPFSK, проверка sync word/версии/длины/CRC-16, CLI и JSON-отчёт; 44 новых теста, 2 заглушки удалены (195 всего); round-trip на тексте, UTF-8, binary и длинах 1…512 |
 | SN-013 | DONE | `snlab/benchmark.py` + `benchmark.py`: 100 испытаний на точки 0/5/10/15/20 дБ, AWGN по мощности активной области, BER до CRC и с пропущенными битами, PER со всеми отказами, CSV/JSON/PNG/`M0-report.md`; 45 новых тестов (240 всего); M0-6 100/100 при 15 дБ |
+| SN-012 | DONE (код) | `snlab/calibration.py` + `calibrate.py`: тон-план, захват динамик→микрофон, уровень/SNR/смещение частоты/клиппинг, WAV+JSON+PNG; физический режим только с `--hardware-test`; реальный акустический PASS не заявляется |
+| SN-014 | IN_PROGRESS (код готов, физика PENDING) | `snlab/tones.py`, `snlab/analysis.py`, `snlab/response.py` + `tonegen.py`, `analyze.py`, `response.py`: безопасные файловые инструменты, полный прогон 400 passed; план физической калибровки — `docs/hardware-calibration/SN-014-TEST-PLAN.md`; измерения не выполнялись |
 
 ---
 
@@ -51,7 +53,7 @@
 |---|---|
 | Репозиторий | git, `.gitignore`, ветка `agent1/m0-acoustic-lab`, `README.md`, `requirements.txt` |
 | Документы | `docs/reference/` с канонической копией Architecture v1.0, актуализация `TASK_BOARD.md` и `docs/current-milestone.md` |
-| Acoustic Lab | `acoustic-lab/` с CLI `scanner.py`, `transmitter.py`, `receiver.py`, `benchmark.py` и пакетом `snlab/` |
+| Acoustic Lab | `acoustic-lab/` с CLI `scanner.py`, `transmitter.py`, `receiver.py`, `benchmark.py`, `tonegen.py`, `analyze.py`, `response.py`, `calibrate.py` и пакетом `snlab/` |
 | DSP | BFSK модулятор/демодулятор, преамбула и синхронизация, оценка BER по битам и байтам |
 | Измерения | скан устройств и форматов, запись фонового шума, BER/PER на AWGN |
 | Тесты | pytest-набор, детерминированные данные, негативные сценарии |

@@ -252,6 +252,7 @@ def test_live_capture_writes_wav_report_and_plot(
     code = calibrate.main(
         [
             *TONE_ARGS,
+            "--hardware-test",
             "--out",
             str(wav),
             "--report",
@@ -286,6 +287,7 @@ def test_live_capture_without_input_device_returns_3(
     code = calibrate.main(
         [
             *TONE_ARGS,
+            "--hardware-test",
             "--out",
             str(tmp_path / "x.wav"),
             "--report",
@@ -316,6 +318,7 @@ def test_playback_error_returns_4(
     code = calibrate.main(
         [
             *TONE_ARGS,
+            "--hardware-test",
             "--out",
             str(tmp_path / "x.wav"),
             "--report",
@@ -338,6 +341,7 @@ def test_audio_backend_unavailable_returns_3(
     code = calibrate.main(
         [
             *TONE_ARGS,
+            "--hardware-test",
             "--out",
             str(tmp_path / "x.wav"),
             "--report",
@@ -389,3 +393,144 @@ def test_plot_and_no_plot_are_mutually_exclusive(tmp_path: Path) -> None:
             ]
         )
     assert excinfo.value.code == calibrate.EXIT_USAGE
+
+def test_live_capture_without_hardware_flag_never_opens_devices(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def forbidden(sd_module: Any = None) -> list[audio.DeviceInfo]:
+        raise AssertionError("list_devices не должен вызываться без --hardware-test")
+
+    monkeypatch.setattr(calibrate.audio, "list_devices", forbidden)
+
+    code = calibrate.main(
+        [
+            *TONE_ARGS,
+            "--out",
+            str(tmp_path / "x.wav"),
+            "--report",
+            str(tmp_path / "x.json"),
+            "--no-plot",
+        ]
+    )
+
+    assert code == calibrate.EXIT_USAGE
+    assert "--hardware-test" in capsys.readouterr().err
+
+
+def test_run_capture_internal_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden(sd_module: Any = None) -> list[audio.DeviceInfo]:
+        raise AssertionError("list_devices не должен вызываться")
+
+    monkeypatch.setattr(calibrate.audio, "list_devices", forbidden)
+    args = calibrate.build_parser().parse_args(TONE_ARGS)
+    plan = calibrate.build_plan(args)
+
+    with pytest.raises(calibration.CalibrationError, match="hardware-test"):
+        calibrate._run_capture(
+            args,
+            plan,
+            tmp_path / "x.json",
+            None,
+        )
+
+
+def test_list_devices_is_safe_and_does_not_play(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    devices = [
+        make_device(1, name="Fake Mic", inputs=1, outputs=0),
+        make_device(2, name="Fake Speaker", inputs=0, outputs=2),
+    ]
+    monkeypatch.setattr(
+        calibrate.audio, "list_devices", lambda sd_module=None: devices
+    )
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("play_and_record не должен вызываться")
+
+    monkeypatch.setattr(calibrate.calibration, "play_and_record", forbidden)
+
+    code = calibrate.main(["--list-devices"])
+
+    assert code == calibrate.EXIT_OK
+    output = capsys.readouterr().out
+    assert "Fake Mic" in output
+    assert "Fake Speaker" in output
+    assert "потоки не открываются" in output
+
+
+def test_list_devices_conflicts_with_analyze(tmp_path: Path) -> None:
+    code = calibrate.main(
+        [
+            "--list-devices",
+            "--analyze",
+            str(tmp_path / "capture.wav"),
+        ]
+    )
+    assert code == calibrate.EXIT_USAGE
+
+
+def test_hardware_test_prints_warning_and_runs_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    devices = [
+        make_device(1, name="Fake Mic", inputs=1, outputs=0),
+        make_device(2, name="Fake Speaker", inputs=0, outputs=2),
+    ]
+    monkeypatch.setattr(
+        calibrate.audio, "list_devices", lambda sd_module=None: devices
+    )
+    plan = plan_from_args()
+    samples = capture_for_plan(plan)
+
+    def fake_play(*args: Any, **kwargs: Any) -> calibration.PlaybackCapture:
+        return calibration.PlaybackCapture(
+            samples=samples.astype(np.float32),
+            sample_rate=plan.sample_rate,
+            input_device_index=1,
+            output_device_index=2,
+            input_device_name="Fake Mic",
+            output_device_name="Fake Speaker",
+            mode="concurrent",
+            overflows=0,
+            wall_time_s=0.1,
+            warnings=(),
+        )
+
+    monkeypatch.setattr(calibrate.calibration, "play_and_record", fake_play)
+
+    code = calibrate.main(
+        [
+            *TONE_ARGS,
+            "--hardware-test",
+            "--out",
+            str(tmp_path / "capture.wav"),
+            "--report",
+            str(tmp_path / "capture.json"),
+            "--no-plot",
+        ]
+    )
+
+    assert code == calibrate.EXIT_OK
+    output = capsys.readouterr().out
+    assert "ФИЗИЧЕСКИЙ ТЕСТ" in output
+    assert (tmp_path / "capture.wav").is_file()
+    assert (tmp_path / "capture.json").is_file()
+
+
+def test_format_command_records_safety_flags() -> None:
+    args = calibrate.build_parser().parse_args(
+        [*TONE_ARGS, "--hardware-test", "--list-devices"]
+    )
+    command = calibrate.format_command(args)
+
+    assert "--hardware-test" in command
+    assert "--list-devices" in command

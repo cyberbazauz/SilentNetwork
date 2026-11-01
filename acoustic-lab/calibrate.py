@@ -1,7 +1,12 @@
-"""calibrate.py — калибровка тракта динамик → воздух → микрофон (SN-012).
+"""calibrate.py — калибровка тракта динамик → воздух → микрофон (SN-012/SN-014).
 
 Инструмент передаёт тон-сетку через выбранный динамик, одновременно пишет
 микрофон, измеряет уровень/SNR/смещение частоты и сохраняет WAV + JSON.
+
+Безопасный режим по умолчанию: физическое воспроизведение и запись **не
+запускаются**, пока явно не указан `--hardware-test`. Анализ готового WAV
+(`--analyze`) и просмотр устройств (`--list-devices`) работают без этого флага,
+но `--list-devices` только опрашивает PortAudio и не открывает поток.
 
 Он не передаёт сообщения и не доказывает работу модема. PASS означает только
 то, что обязательные частоты (по умолчанию 18 и 19 кГц) обнаружены в записи
@@ -9,7 +14,7 @@
 
 Коды возврата:
     0 — калибровка выполнена, обязательные частоты поддержаны;
-    2 — неверные аргументы или параметры плана;
+    2 — неверные аргументы, параметры плана или физический режим без флага;
     3 — нет аудиобэкенда, входного или выходного устройства;
     4 — ошибка воспроизведения, записи, чтения WAV или отчёта;
     5 — калибровка выполнена, но обязательные частоты не поддержаны.
@@ -60,8 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
             "микрофоном, уровень/SNR/смещение частоты, WAV и JSON."
         ),
         epilog=(
-            "Коды возврата: 0 — PASS, 2 — аргументы, 3 — нет устройства, "
-            "4 — ошибка ввода-вывода, 5 — обязательные частоты не поддержаны."
+            "Без --hardware-test звук не воспроизводится и микрофон не "
+            "записывается. Коды возврата: 0 — PASS, 2 — аргументы или "
+            "физический режим без флага, 3 — нет устройства, 4 — ошибка "
+            "ввода-вывода, 5 — обязательные частоты не поддержаны."
         ),
     )
     parser.add_argument(
@@ -69,6 +76,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="WAV",
         help="анализировать существующую запись вместо воспроизведения",
+    )
+    parser.add_argument(
+        "--list-devices",
+        action="store_true",
+        help="показать аудиоустройства и выйти (потоки не открываются)",
+    )
+    parser.add_argument(
+        "--hardware-test",
+        action="store_true",
+        help=(
+            "РАЗРЕШИТЬ физический тест: воспроизвести звук через динамик и "
+            "записать микрофон. Без этого флага физический режим запрещён"
+        ),
     )
     parser.add_argument(
         "--input-device",
@@ -205,11 +225,19 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.list_devices and args.analyze is not None:
+        raise calibration.CalibrationError(
+            "--list-devices и --analyze нельзя использовать одновременно"
+        )
+
     plan = build_plan(args)
     if not 0.0 <= args.min_snr_db <= 200.0:
         raise calibration.CalibrationError("--min-snr-db должен быть в 0..200")
     if not 0.0 < args.max_offset_hz <= 1_000.0:
         raise calibration.CalibrationError("--max-offset-hz должен быть в (0, 1000]")
+
+    if args.list_devices:
+        return _run_list_devices()
 
     stem = _default_stem()
     report_path = args.report or (
@@ -220,7 +248,41 @@ def run(args: argparse.Namespace) -> int:
     if args.analyze is not None:
         return _run_analysis(args, plan, report_path, plot_path)
 
+    if not args.hardware_test:
+        raise calibration.CalibrationError(
+            "физический тест отключён: воспроизведение и запись выполняются "
+            "только с явным флагом --hardware-test. Для анализа готового WAV "
+            "используйте --analyze, для списка устройств — --list-devices"
+        )
+
     return _run_capture(args, plan, report_path, plot_path)
+
+
+def _run_list_devices() -> int:
+    """Показать устройства, не открывая входной/выходной поток."""
+    devices = audio.list_devices()
+    print("Аудиоустройства (потоки не открываются):")
+    for device in devices:
+        directions = []
+        if device.is_input:
+            directions.append(f"in {device.max_input_channels}")
+        if device.is_output:
+            directions.append(f"out {device.max_output_channels}")
+        marks = []
+        if device.is_default_input:
+            marks.append("default input")
+        if device.is_default_output:
+            marks.append("default output")
+        suffix = f" [{', '.join(marks)}]" if marks else ""
+        print(
+            f"[{device.index:>2}] {device.name} "
+            f"({device.hostapi_name}; {'; '.join(directions)}){suffix}"
+        )
+    print(
+        "\nПодсказка: индексы и имена можно передать в --input-device/"
+        "--output-device. Форматы проверяет scanner.py --list."
+    )
+    return EXIT_OK
 
 
 def _run_capture(
@@ -229,7 +291,17 @@ def _run_capture(
     report_path: Path,
     plot_path: Path | None,
 ) -> int:
+    if not getattr(args, "hardware_test", False):
+        raise calibration.CalibrationError(
+            "внутренняя защита: физический захват без --hardware-test запрещён"
+        )
+
     signal = calibration.generate_signal(plan)
+    print("=" * 72)
+    print("ФИЗИЧЕСКИЙ ТЕСТ: сейчас будет воспроизведён звук через динамик")
+    print("и выполнена запись с микрофона. Убедитесь, что это безопасно.")
+    print("=" * 72, flush=True)
+
     devices = audio.list_devices()
     input_device = audio.select_device(args.input_device, "input", devices)
     output_device = audio.select_device(args.output_device, "output", devices)
@@ -398,7 +470,7 @@ def build_report(
             "window": (
                 f"Окно {calibration.MEASUREMENT_WINDOW_S:g} с (не длиннее тона), "
                 "края 10% отбрасываются; время окна выбирается по максимуму "
-                "огибающей на ожидаемой частоте"
+                "широкополосной огибающей внутри границ тона"
             ),
             "thresholds": {
                 "min_snr_db": analysis.min_snr_db,
@@ -492,6 +564,10 @@ def format_command(args: argparse.Namespace) -> str:
     ]
     if args.analyze is not None:
         parts.append(f"--analyze {args.analyze}")
+    if args.list_devices:
+        parts.append("--list-devices")
+    if args.hardware_test:
+        parts.append("--hardware-test")
     if args.input_device:
         parts.append(f"--input-device {args.input_device!r}")
     if args.output_device:

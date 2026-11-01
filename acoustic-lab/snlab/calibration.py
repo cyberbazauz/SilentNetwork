@@ -505,7 +505,7 @@ def _measure_tone(
         )
 
     region = samples[search_start_sample:search_end_sample]
-    center = _best_window_center(region, sample_rate, frequency)
+    center = _best_window_center(region, sample_rate)
     measure_samples = min(
         int(round(MEASUREMENT_WINDOW_S * sample_rate)),
         plan.tone_samples,
@@ -589,20 +589,22 @@ def _measure_tone(
 def _best_window_center(
     region: np.ndarray,
     sample_rate: int,
-    frequency: float,
 ) -> int:
-    """Центр окна 20 мс с максимальной энергией на ожидаемой частоте."""
+    """Центр окна 20 мс с максимальной широкополосной энергией.
+
+    Регион уже ограничен границами одного тона и паузами, поэтому соседние
+    тоны в него не попадают. Широкополосная огибающая выбрана намеренно: при
+    заметном смещении частоты узкополосное смешение с ожидаемой частотой даёт
+    биения и может «прилипнуть» к краю тона. Широкополосная энергия от
+    смещения не зависит.
+    """
     window = max(16, int(round(0.02 * sample_rate)))
     if region.size <= window:
         return region.size // 2
 
-    time_axis = np.arange(region.size, dtype=np.float64)
-    mixed = region * np.exp(-2j * math.pi * frequency * time_axis / sample_rate)
-    cumulative = np.concatenate(
-        (np.zeros(1, dtype=np.complex128), np.cumsum(mixed, dtype=np.complex128))
-    )
-    window_sum = cumulative[window:] - cumulative[:-window]
-    energy = window_sum.real * window_sum.real + window_sum.imag * window_sum.imag
+    power = np.square(np.asarray(region, dtype=np.float64))
+    cumulative = np.concatenate((np.zeros(1, dtype=np.float64), np.cumsum(power)))
+    energy = cumulative[window:] - cumulative[:-window]
 
     # argmax попадает в произвольную точку плоской вершины тона. Чтобы окно
     # измерения не съезжало на паузу, берётся середина непрерывного участка
