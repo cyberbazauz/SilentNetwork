@@ -17,7 +17,8 @@
 | Исходная архитектура v1.0 | каноническая копия в `docs/reference/` |
 | Acoustic Lab: инфраструктура | есть и покрыта тестами (`acoustic-lab/snlab/`) |
 | Acoustic Lab: сканер устройств и фона | реализован, реальный захват 10 с проверен (SN-010) |
-| BFSK-модулятор и демодулятор | не реализованы |
+| Acoustic Lab: BFSK-передатчик (WAV) | реализован, 20/20 одинаковых SHA-256 (SN-011) |
+| BFSK-приёмник и синхронизация | не реализованы (SN-021) |
 | Реальная передача Windows ↔ Windows | не выполнялась |
 | Rust Core, SCNP, криптография | не реализованы |
 | Android-приложение | не реализовано (зона Gemini) |
@@ -34,13 +35,14 @@ SilentNetwork/
 ├── .gitignore / .gitattributes
 ├── docs/
 │   ├── audit/                    # аудиты состояния
+│   ├── decisions/                # ADR (ADR-001 — кадр и BFSK)
 │   ├── current-milestone.md      # текущий milestone и критерии приёмки
 │   └── reference/                # канонические исходные документы
 └── acoustic-lab/                 # Python-исследования и измерения
-    ├── snlab/                    # конфигурация, WAV I/O, метрики, AWGN
+    ├── snlab/                    # профили, WAV I/O, метрики, AWGN, BFSK
     ├── tests/                    # pytest
     ├── scanner.py                # SN-010, реализован
-    ├── transmitter.py            # SN-011 (пока только интерфейс)
+    ├── transmitter.py            # SN-011, реализован
     ├── receiver.py               # SN-021 (пока только интерфейс)
     └── benchmark.py              # SN-013 (пока только интерфейс)
 ```
@@ -61,13 +63,15 @@ python -m pip install -r requirements.txt
 python -m pytest tests -q
 ```
 
-Все тесты проверяют инфраструктуру (конфигурацию, WAV, метрики, AWGN) и
-анализаторы сканера; аудиобэкенд в тестах подменяется фейком, реальный
-микрофон не открывается.
+Все тесты проверяют инфраструктуру (конфигурацию, WAV, метрики, AWGN),
+анализаторы сканера и BFSK-передатчик; аудиобэкенд в тестах подменяется
+фейком, реальный микрофон и динамик не открываются.
 
 ## Документы
 
 - `docs/current-milestone.md` — milestone M0 и 11 измеримых критериев приёмки.
+- `docs/decisions/ADR-001-acoustic-frame-v1.md` — формат кадра, CRC-16 и
+  BFSK-модуляция Acoustic Lab.
 - `docs/audit/2026-11-01-repository-audit.md` — состояние репозитория,
   окружения, риски и блокеры.
 - `docs/reference/SilentNetwork_Architecture_v1.0.txt` — утверждённая

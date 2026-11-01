@@ -20,6 +20,31 @@ class WavFormatError(ValueError):
     """WAV не соответствует требованиям Acoustic Lab."""
 
 
+def to_pcm16_bytes(samples: np.ndarray) -> bytes:
+    """Преобразовать сигнал в байты PCM16 mono little-endian.
+
+    Это единственное место, где сигнал в долях полной шкалы превращается в
+    PCM. И `write_pcm16`, и модулятор обязаны использовать его, иначе SHA-256
+    «того же» сигнала может разойтись из-за разных правил округления.
+
+    Args:
+        samples: одномерный сигнал в долях полной шкалы; клиппируется в [-1, 1].
+
+    Raises:
+        ValueError: не одномерный, пустой сигнал, NaN/бесконечность.
+    """
+    data = np.asarray(samples, dtype=np.float64)
+    if data.ndim != 1:
+        raise ValueError("ожидается одномерный сигнал")
+    if data.size == 0:
+        raise ValueError("нельзя записать пустой сигнал")
+    if not np.all(np.isfinite(data)):
+        raise ValueError("сигнал содержит NaN или бесконечность")
+
+    pcm = np.round(np.clip(data, -1.0, 1.0) * 32767.0).astype("<i2")
+    return pcm.tobytes()
+
+
 def write_pcm16(path: str | Path, samples: np.ndarray, sample_rate: int) -> Path:
     """Записать одномерный сигнал в PCM16 WAV.
 
@@ -34,25 +59,22 @@ def write_pcm16(path: str | Path, samples: np.ndarray, sample_rate: int) -> Path
     Raises:
         ValueError: пустой сигнал, NaN/бесконечность или неверная частота.
     """
-    data = np.asarray(samples, dtype=np.float64)
-    if data.ndim != 1:
-        raise ValueError("ожидается одномерный сигнал")
-    if data.size == 0:
-        raise ValueError("нельзя записать пустой сигнал")
-    if not np.all(np.isfinite(data)):
-        raise ValueError("сигнал содержит NaN или бесконечность")
-    if not isinstance(sample_rate, int) or sample_rate <= 0:
+    payload = to_pcm16_bytes(samples)
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool):
+        raise ValueError("sample_rate должен быть целым числом")
+    if sample_rate <= 0:
         raise ValueError("sample_rate должен быть положительным целым числом")
-
-    pcm = np.round(np.clip(data, -1.0, 1.0) * 32767.0).astype("<i2")
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(target), "wb") as wav_file:
-        wav_file.setnchannels(CHANNELS)
-        wav_file.setsampwidth(SAMPLE_WIDTH_BYTES)
-        wav_file.setframerate(sample_rate)
-        wav_file.writeframes(pcm.tobytes())
+    # Открываем файл сами: если путь указывает на каталог, ошибка возникает
+    # до создания Wave_write и не оставляет предупреждений в __del__.
+    with target.open("wb") as handle:
+        with wave.open(handle, "wb") as wav_file:
+            wav_file.setnchannels(CHANNELS)
+            wav_file.setsampwidth(SAMPLE_WIDTH_BYTES)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(payload)
     return target
 
 

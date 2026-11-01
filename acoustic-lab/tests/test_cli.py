@@ -4,7 +4,8 @@
 поведение заглушек: `--help` работает, запуск возвращает код 2 и называет
 задачу. Ни один тест не утверждает, что измерения или передача выполнены.
 
-scanner.py реализован в SN-010 и проверяется отдельно в `test_scanner.py`.
+scanner.py реализован в SN-010 (`test_scanner.py`), transmitter.py — в SN-011
+(`test_transmitter.py`).
 """
 
 from __future__ import annotations
@@ -13,9 +14,8 @@ import pytest
 
 import benchmark
 import receiver
-import transmitter
 
-STUBS = [transmitter, receiver, benchmark]
+STUBS = [receiver, benchmark]
 
 
 @pytest.mark.parametrize("module", STUBS, ids=lambda module: module.TOOL_NAME)

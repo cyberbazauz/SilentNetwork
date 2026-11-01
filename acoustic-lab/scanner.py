@@ -15,16 +15,15 @@
 from __future__ import annotations
 
 import argparse
-import json
-import platform
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from snlab import audio
+from snlab.reporting import configure_console, environment, utc_now, write_json
 from snlab.wavio import write_pcm16
 
 TOOL_NAME = "scanner.py"
@@ -109,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _configure_console()
+    configure_console()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -144,7 +143,7 @@ def run_list(args: argparse.Namespace) -> int:
     print_device_table(report)
 
     if args.out is not None:
-        _write_json(args.out, report)
+        write_json(args.out, report)
         print(f"\nJSON: {args.out}")
     return EXIT_OK
 
@@ -184,7 +183,7 @@ def run_capture(args: argparse.Namespace) -> int:
         },
     )
     report_path = args.report or wav_path.with_suffix(".json")
-    _write_json(report_path, report)
+    write_json(report_path, report)
 
     print_capture_summary(report)
     print(f"\nWAV: {wav_path}")
@@ -222,8 +221,8 @@ def build_device_report(
         "schema": SCHEMA,
         "tool": TOOL_NAME,
         "task": TASK_ID,
-        "generated_at_utc": _utc_now(),
-        "environment": _environment(),
+        "generated_at_utc": utc_now(),
+        "environment": environment(),
         "probed": probe,
         "summary": {
             "devices_total": len(entries),
@@ -263,8 +262,8 @@ def build_capture_report(
         "schema": SCHEMA,
         "tool": TOOL_NAME,
         "task": TASK_ID,
-        "generated_at_utc": _utc_now(),
-        "environment": _environment(),
+        "generated_at_utc": utc_now(),
+        "environment": environment(),
         "capture": {
             "device_index": recording.device_index,
             "device_name": recording.device_name,
@@ -368,41 +367,6 @@ def _first(entries: list[dict[str, Any]], key: str) -> int | None:
     return None
 
 
-def _environment() -> dict[str, Any]:
-    return {
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "python": platform.python_version(),
-        "libraries": {
-            "numpy": np.__version__,
-            "scipy": _module_version("scipy"),
-            "sounddevice": _module_version("sounddevice"),
-            "matplotlib": _module_version("matplotlib"),
-        },
-    }
-
-
-def _module_version(name: str) -> str | None:
-    try:
-        module = __import__(name)
-    except ImportError:  # pragma: no cover - зависит от окружения
-        return None
-    return getattr(module, "__version__", None)
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
 def _default_capture_path() -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return Path("results") / f"ambient-{stamp}.wav"
@@ -412,17 +376,6 @@ def _fail(message: str, hint: str | None) -> None:
     print(message, file=sys.stderr)
     if hint:
         print(f"Подсказка: {hint}", file=sys.stderr)
-
-
-def _configure_console() -> None:
-    """Не падать на символах, которые не кодируются в текущей консоли."""
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            try:
-                reconfigure(errors="replace")
-            except (ValueError, OSError):  # pragma: no cover - экзотические потоки
-                pass
 
 
 if __name__ == "__main__":
