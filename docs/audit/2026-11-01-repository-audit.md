@@ -100,7 +100,7 @@
 | pytest | `python -m pytest --version` | 9.1.1 | тест-раннер доступен |
 | Аудиоустройства | `python -c "import sounddevice as sd; print(sd.query_devices())"` | 26 endpoint'ов: MME, DirectSound, WASAPI, WDM-KS; есть вход (микрофонный массив AMD) и выход (Realtek) | базовый стенд есть; имена в консоли частично искажены кодировкой |
 | Rust | `rustc --version`, `cargo --version`, `rustup show` | команды не найдены | **Rust Core собрать нельзя** |
-| Java | `java -version` | 1.8.0_511 (JRE), JDK отсутствует; `C:\Program Files\Java\latest\bin\java.exe` не существует | **недостаточно для современного Android Gradle Plugin** |
+| Java | `java -version` | 1.8.0_511 (JRE) в PATH; `C:\Program Files\Java\latest\bin\java.exe` не существует. **Уточнение 2026-11-01 (Gemini):** JDK 17 обнаружен в `C:\jdk-17.0.2`, то есть JDK 17 доступен, но не является Java по умолчанию | Android-сборка возможна при явном указании JDK 17 и Gradle Wrapper |
 | Gradle | `gradle --version` | команда не найдена | Android-сборка не настроена |
 | Android SDK | `$env:ANDROID_HOME`, листинг | `C:\Android\sdk`; platforms `android-34`, `android-35`; build-tools `33.0.1`, `34.0.0`; NDK `27.0.12077973` | SDK есть, но сборочная цепочка не готова |
 | adb | `adb version`, `adb devices` | 1.0.41 (37.0.1); **подключённых устройств нет** | Android-тесты на железе сейчас невозможны |
@@ -134,7 +134,7 @@
 | B1 | Каталог не под git | нет истории, diff, веток, code review; нарушение `AGENTS.md` §8 | Agent 1 | `git init`, `.gitignore`, ветка `agent1/...` — нужно решение Product Owner |
 | B2 | Архитектурный документ вне репозитория | риск расхождения «источника истины» и потери версии | PO + Agent 1 | внести каноническую копию в `docs/reference/`, зафиксировать дату и контрольную сумму |
 | B3 | Нет Rust toolchain | весь Rust Core (этап 3+) заблокирован | PO + Agent 1 | решение об установке `rustup` stable; без него SN-030…SN-033, SN-050…SN-053 не начать |
-| B4 | Только JRE 8, нет Gradle | Android-сборка невозможна | Gemini + PO | JDK 17 (или встроенный JBR Android Studio) + Gradle Wrapper |
+| B4 | Java по умолчанию — JRE 8, Gradle в PATH отсутствует | Android-сборка требует явного JDK 17 и Wrapper | Gemini + PO | JDK 17 найден в `C:\jdk-17.0.2` (Gemini); остаётся настроить Gradle Wrapper и проект |
 | B5 | Нет подключённого Android-устройства | реальные Android-тесты невозможны | Gemini | устройство/эмулятор; эмулятор не заменяет акустический тест |
 | B6 | Не подтверждён второй Windows-ПК | SN-022 (реальная передача Windows ↔ Windows) невыполним | PO | подтвердить второе устройство и его аудиотракт |
 | B7 | Аудиообработка Windows (AGC, шумоподавление, «улучшения») может искажать 16–22 кГц | ложные выводы о канале | Agent 1 | в `scanner.py` измерять фактический спектр и тракт; фиксировать режим; проверять WASAPI/сырой поток |
