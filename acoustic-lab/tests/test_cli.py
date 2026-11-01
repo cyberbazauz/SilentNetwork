@@ -5,7 +5,7 @@
 задачу. Ни один тест не утверждает, что измерения или передача выполнены.
 
 scanner.py реализован в SN-010 (`test_scanner.py`), transmitter.py — в SN-011
-(`test_transmitter.py`).
+(`test_transmitter.py`), receiver.py — в SN-021 (`test_receiver.py`).
 """
 
 from __future__ import annotations
@@ -13,9 +13,8 @@ from __future__ import annotations
 import pytest
 
 import benchmark
-import receiver
 
-STUBS = [receiver, benchmark]
+STUBS = [benchmark]
 
 
 @pytest.mark.parametrize("module", STUBS, ids=lambda module: module.TOOL_NAME)
