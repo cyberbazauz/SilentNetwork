@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SilentNetwork</string>
+    <string name="app_version">v0.1.0-alpha (Android Stabilization)</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_status">Статус</string>
+    <string name="tab_messenger">Чат</string>
+    <string name="tab_devices">Узлы</string>
+    <string name="tab_settings">Настройки</string>
+
+    <!-- Visual Markers -->
+    <string name="badge_mock">[TEST / SKELETON]</string>
+    <string name="badge_ready">[ГОТОВО]</string>
+    <string name="badge_wip">[В РАЗРАБОТКЕ]</string>
+    <string name="tag_no_radio">100% ACOUSTIC TRANSPORT</string>
+
+    <!-- Status Screen -->
+    <string name="status_title">Акустический канал</string>
+    <string name="status_subtitle">Диагностика окружения и аппаратного аудиотракта</string>
+    <string name="status_channel_state">Состояние тракта</string>
+    <string name="status_channel_disconnected">DISCONNECTED (ядро не подключено)</string>
+    <string name="status_channel_desc">Статус отражает реальное состояние Core; фиктивная передача исключена правилами проекта.</string>
+    <string name="status_hardware">Аудиооборудование Android</string>
+    <string name="status_core_binding">Связка с Core (FFI)</string>
+    <string name="status_core_pending">Ожидает docs/android-core-api.md (SN-040)</string>
+    <string name="status_core_desc">Kotlin UI ожидает утверждения FFI-контракта от Agent 1. Заглушки с эмуляцией передачи запрещены правилами проекта.</string>
+    <string name="status_mic_permission">Разрешение на микрофон</string>
+    <string name="status_perm_granted">Предоставлено</string>
+    <string name="status_perm_denied">Требуется подтверждение</string>
+    <string name="status_btn_request_perm">Запросить доступ к микрофону</string>
+
+    <!-- Messenger Screen -->
+    <string name="messenger_title">Защищённый диалог</string>
+    <string name="messenger_subtitle">Прямая акустическая сессия (Direct Link / Mesh)</string>
+    <string name="messenger_banner_disabled">РЕЖИМ ПОДГОТОВКИ (SKELETON): Передача заблокирована — ядро Rust Core не подключено.</string>
+    <string name="messenger_empty_hint">Сообщений пока нет.\nОтправка реальных данных станет доступна после интеграции Rust Core (SN-042).</string>
+    <string name="messenger_input_hint">Введите сообщение...</string>
+    <string name="messenger_btn_send">Отправить</string>
+    <string name="messenger_toast_disabled">Отправка невозможна: ядро Rust Core ещё не подключено. Фейковая передача исключена.</string>
+    <string name="messenger_error_empty">Введите текст сообщения перед отправкой.</string>
+
+    <!-- Devices Screen -->
+    <string name="devices_title">Таблица соседей (Mesh Discovery)</string>
+    <string name="devices_subtitle">Узлы, обнаруженные по акустическим пакетам DISCOVERY/HELLO</string>
+    <string name="devices_status_title">Статус акустического сканирования</string>
+    <string name="devices_status_val">НЕАКТИВНО (ожидание этапа M1/Mesh SN-050)</string>
+    <string name="devices_empty_hint">Соседние акустические узлы не обнаружены.\nОжидание широковещательного маяка HELLO через звук...</string>
+    <string name="devices_info_desc">Акустическое сканирование эфира и таблица соседей станут доступны после интеграции Acoustic PHY и SCNP-пакетов. Захват микрофона на этом экране не активируется.</string>
+    <string name="devices_btn_info">Информация о готовности узлов</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Параметры связи и безопасность</string>
+    <string name="settings_subtitle">Архитектурные ограничения и профили физического уровня</string>
+    <string name="settings_modem_profile">Профиль модема</string>
+    <string name="settings_modem_profile_val">BFSK 18–19 кГц, 300 бит/с (M0)</string>
+    <string name="settings_modem_profile_warn">ПРЕДВАРИТЕЛЬНЫЙ ТЕСТОВЫЙ ПРОФИЛЬ (гипотеза M0, не подтверждена на реальном мобильном железе)</string>
+    <string name="settings_audio_format">Формат PCM аудиобуфера</string>
+    <string name="settings_audio_format_val">48 000 Гц, Mono, 16-bit LE (целевой контракт)</string>
+    <string name="settings_crypto">Схема криптографии</string>
+    <string name="settings_crypto_val">XChaCha20-Poly1305 + Ed25519 (Core)</string>
+    <string name="settings_radio_policy">Политика радиосвязи</string>
+    <string name="settings_radio_policy_val">Wi-Fi, Bluetooth и сотовая связь строго исключены из транспорта</string>
+    <string name="settings_radio_policy_desc">Принцип SilentNetwork: передача данных осуществляется исключительно через звуковую волну (динамик -> воздух -> микрофон).</string>
+    <string name="settings_build_info">Сведения о сборке Android</string>
+    <string name="settings_build_info_val">Kotlin 1.9.22 | AGP 8.2.1 | Gradle 8.3 | compileSdk 34 | minSdk 26</string>
+</resources>

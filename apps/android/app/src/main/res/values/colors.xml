@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Cyber-Acoustic Palette (OLED / Deep Navy) -->
+    <color name="bg_canvas">#08090D</color>
+    <color name="bg_surface">#0F121C</color>
+    <color name="bg_surface_elevated">#151A28</color>
+    <color name="bg_card_stroke">#222B40</color>
+
+    <!-- Neon Accents -->
+    <color name="accent_primary">#6366F1</color>
+    <color name="accent_primary_glow">#336366F1</color>
+    <color name="accent_cyan">#06B6D4</color>
+    <color name="accent_emerald">#10B981</color>
+    <color name="accent_amber">#F59E0B</color>
+    <color name="accent_rose">#F43F5E</color>
+
+    <!-- Typography -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#64748B</color>
+    <color name="text_disabled">#334155</color>
+
+    <!-- Status Badges -->
+    <color name="badge_disconnected_bg">#1F161A</color>
+    <color name="badge_disconnected_text">#F43F5E</color>
+    <color name="badge_searching_bg">#1F1D16</color>
+    <color name="badge_searching_text">#F59E0B</color>
+    <color name="badge_active_bg">#102220</color>
+    <color name="badge_active_text">#10B981</color>
+</resources>
