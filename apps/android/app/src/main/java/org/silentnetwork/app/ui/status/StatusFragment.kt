@@ -47,6 +47,16 @@ class StatusFragment : Fragment() {
         binding.btnRequestPermission.setOnClickListener {
             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
+
+        binding.btnOpenAudioLab.setOnClickListener {
+            (activity as? org.silentnetwork.app.MainActivity)?.let { act ->
+                act.selectTab(
+                    R.id.tab_audio_lab,
+                    org.silentnetwork.app.ui.audiolab.AudioLabFragment.newInstance(),
+                    org.silentnetwork.app.MainActivity.TAG_AUDIO_LAB
+                )
+            }
+        }
     }
 
     override fun onResume() {

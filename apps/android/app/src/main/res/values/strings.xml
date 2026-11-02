@@ -7,13 +7,52 @@
     <string name="tab_status">Статус</string>
     <string name="tab_messenger">Чат</string>
     <string name="tab_devices">Узлы</string>
+    <string name="tab_audiolab">Audio Lab</string>
     <string name="tab_settings">Настройки</string>
 
     <!-- Visual Markers -->
     <string name="badge_mock">[TEST / SKELETON]</string>
     <string name="badge_ready">[ГОТОВО]</string>
     <string name="badge_wip">[В РАЗРАБОТКЕ]</string>
+    <string name="badge_experimental">[ГИПОТЕЗА M0]</string>
     <string name="tag_no_radio">100% ACOUSTIC TRANSPORT</string>
+
+    <!-- Audio Lab Screen -->
+    <string name="audiolab_title">Аудиолаборатория</string>
+    <string name="audiolab_subtitle">Калибровка динамика, микрофона и спектральный анализ (SN-014)</string>
+    <string name="audiolab_transmitter_title">A. ПЕРЕДАТЧИК (Тестовый сигнал)</string>
+    <string name="audiolab_transmitter_desc">Генерация чистого тона PCM16. Воспроизведение строго по кнопке PLAY.</string>
+    <string name="audiolab_frequency">Частота тона:</string>
+    <string name="audiolab_sample_rate">Sample Rate:</string>
+    <string name="audiolab_duration">Длительность:</string>
+    <string name="audiolab_amplitude">Амплитуда (громкость сигнала):</string>
+    <string name="audiolab_experimental_warn">Внимание: частоты 18–19 кГц являются экспериментальной гипотезой M0 и не гарантируют слышимость или аппаратную поддержку всеми излучателями.</string>
+    <string name="audiolab_btn_generate_wav">Сгенерировать WAV</string>
+    <string name="audiolab_btn_play">PLAY (Воспроизвести)</string>
+    <string name="audiolab_btn_stop">STOP (Остановить)</string>
+    <string name="audiolab_btn_export_tx_wav">Экспорт тест-WAV</string>
+    <string name="audiolab_play_dialog_title">Подтверждение воспроизведения</string>
+    <string name="audiolab_play_dialog_msg">Сейчас через динамик телефона будет воспроизведён тестовый сигнал %s на низкой амплитуде.\n\nПродолжить?</string>
+
+    <string name="audiolab_receiver_title">B. ПРИЁМНИК (Запись микрофона)</string>
+    <string name="audiolab_receiver_desc">Захват необработанного аудио (UNPROCESSED/MIC). Никакой скрытой фоновой записи.</string>
+    <string name="audiolab_rec_duration">Длительность записи:</string>
+    <string name="audiolab_rec_source">Источник захвата:</string>
+    <string name="audiolab_btn_start_record">НАЧАТЬ ЗАПИСЬ</string>
+    <string name="audiolab_btn_stop_record">ОСТАНОВИТЬ ЗАПИСЬ</string>
+    <string name="audiolab_btn_export_rx_wav">Экспорт записи WAV</string>
+    <string name="audiolab_btn_send_to_analyzer">Передать в анализатор</string>
+    <string name="audiolab_rec_state_idle">Статус: Готов к записи</string>
+    <string name="audiolab_rec_state_recording">Запись аудио... %1$.1f / %2$d сек</string>
+    <string name="audiolab_rec_state_completed">Запись завершена: получено %d сэмплов (PCM16 mono)</string>
+
+    <string name="audiolab_analyzer_title">C. АНАЛИЗАТОР (Спектр и клиппинг)</string>
+    <string name="audiolab_analyzer_desc">Бортовой расчёт RMS, Peak, dBFS, клиппинга, DC offset и спектральных пиков.</string>
+    <string name="audiolab_btn_import_wav">Импортировать WAV из памяти</string>
+    <string name="audiolab_btn_analyze">Анализировать текущий файл</string>
+    <string name="audiolab_btn_export_json">Экспорт JSON-отчёта</string>
+    <string name="audiolab_snr_note">Примечание: SNR не рассчитывается (для одиночной записи без известной модели шума и эталонного сигнала расчёт SNR некорректен).</string>
+    <string name="audiolab_quick_launch">Открыть Audio Lab (Калибровка)</string>
 
     <!-- Status Screen -->
     <string name="status_title">Акустический канал</string>

@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import org.silentnetwork.app.databinding.ActivityMainBinding
+import org.silentnetwork.app.ui.audiolab.AudioLabFragment
 import org.silentnetwork.app.ui.devices.DevicesFragment
 import org.silentnetwork.app.ui.messenger.MessengerFragment
 import org.silentnetwork.app.ui.settings.SettingsFragment
@@ -43,6 +44,11 @@ class MainActivity : AppCompatActivity() {
                 selectTab(R.id.tab_status, StatusFragment.newInstance(), TAG_STATUS)
             }
         }
+        binding.tabAudioLab.setOnClickListener {
+            if (currentTabId != R.id.tab_audio_lab) {
+                selectTab(R.id.tab_audio_lab, AudioLabFragment.newInstance(), TAG_AUDIO_LAB)
+            }
+        }
         binding.tabMessenger.setOnClickListener {
             if (currentTabId != R.id.tab_messenger) {
                 selectTab(R.id.tab_messenger, MessengerFragment.newInstance(), TAG_MESSENGER)
@@ -79,6 +85,11 @@ class MainActivity : AppCompatActivity() {
         binding.tvTabStatus.setTextColor(if (isStatus) activeColor else inactiveColor)
         binding.ivTabStatus.setColorFilter(if (isStatus) activeColor else inactiveColor)
 
+        // Audio Lab Tab
+        val isAudioLab = activeTabId == R.id.tab_audio_lab
+        binding.tvTabAudioLab.setTextColor(if (isAudioLab) activeColor else inactiveColor)
+        binding.ivTabAudioLab.setColorFilter(if (isAudioLab) activeColor else inactiveColor)
+
         // Messenger Tab
         val isMessenger = activeTabId == R.id.tab_messenger
         binding.tvTabMessenger.setTextColor(if (isMessenger) activeColor else inactiveColor)
@@ -98,6 +109,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val KEY_CURRENT_TAB_ID = "org.silentnetwork.app.KEY_CURRENT_TAB_ID"
         const val TAG_STATUS = "tab_status"
+        const val TAG_AUDIO_LAB = "tab_audio_lab"
         const val TAG_MESSENGER = "tab_messenger"
         const val TAG_DEVICES = "tab_devices"
         const val TAG_SETTINGS = "tab_settings"
