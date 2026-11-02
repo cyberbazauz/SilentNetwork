@@ -25,8 +25,12 @@ SN-014 добавляет генератор тонов, анализатор WA
 
 SN-015 добавляет Windows-приложение `desktop_app.py` для сценария
 **LAPTOP → динамик ноутбука → воздух → микрофон Android → WAV → анализ на
-Windows**. Код и синтетические тесты готовы; физическое воспроизведение и
-реальная запись с телефона **не выполнялись** и остаются `PENDING`.
+Windows**, а также Android Receiver. Windows и Android объединены в ветке
+`agent1/m0-acoustic-lab` merge-коммитом `aba35cc`. Код и синтетические тесты
+готовы; физическое воспроизведение и реальная запись с телефона **не
+выполнялись** и остаются `PENDING`. Готовые файлы для Product Owner:
+`dist/SilentNetwork-Android.apk` и `dist/SilentNetwork-Desktop/`; порядок
+первого теста — `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`.
 
 | Компонент | Статус | Задача |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 **Задача:** SN-015 — Android Audio Lab Receiver + Windows Desktop Acoustic Lab  
 **Версия контракта:** `silentnetwork.sn015.result/1.0`  
-**Статус:** Android-экспорт реализован и проверен синтетикой; физический тест `LAPTOP → PHONE` остаётся `PENDING`  
+**Статус:** Android-экспорт объединён в `agent1/m0-acoustic-lab` (merge `aba35cc`) и проверен синтетикой; физический тест `LAPTOP → PHONE` остаётся `PENDING`  
 **Дата:** 2026-11-02
 
 > Контракт описывает **результат измерения**, а не доказательство передачи

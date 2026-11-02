@@ -318,3 +318,20 @@ GUI — это зафиксировано как будущая доработк
 
 `DONE` относится к коду и форматам файлов, а не к подтверждённому приёму звука
 на конкретном устройстве.
+
+### 9.8. Финальная интеграция
+
+- Android-ветка `agent1/sn015-android` (`5069513`) объединена в
+  `agent1/m0-acoustic-lab` merge-коммитом `aba35cc`; конфликтов не было.
+- Android-файлы в объединённой ветке идентичны `5069513`, Windows-код —
+  `f497f66`.
+- APK для Product Owner: `dist/SilentNetwork-Android.apk`.
+- Windows-версия: `dist/SilentNetwork-Desktop/`.
+- Инструкция первого физического теста:
+  `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`.
+- Числа 56/56 (112) ранее были получены независимым прогоном до merge. После
+  merge тесты и сборка APK перезапущены: debug 56 + release 56 = `112`,
+  failures 0, errors 0; APK `3 392 577` байт. Детали — в финальном отчёте и
+  `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`.
+- Физический тест `LAPTOP → PHONE` остаётся `PENDING` и требует отдельного
+  разрешения Product Owner.

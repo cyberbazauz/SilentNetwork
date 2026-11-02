@@ -1,10 +1,12 @@
 # SN-015 — LAPTOP → PHONE: ручной акустический тест
 
-**Задача:** SN-015, Windows Desktop Acoustic Lab  
-**Ветка:** `agent1/m0-acoustic-lab`  
-**Статус кода:** готов, синтетические тесты проходят  
+**Задача:** SN-015, Windows Desktop Acoustic Lab + Android Audio Lab Receiver  
+**Ветка:** `agent1/m0-acoustic-lab` (merge `aba35cc`)  
+**Статус кода:** готов; Windows и Android объединены, синтетические тесты проходят  
+**Статус доставки:** APK — `dist/SilentNetwork-Android.apk`; Windows — `dist/SilentNetwork-Desktop/`  
 **Статус физического воспроизведения:** `PENDING`  
 **Статус теста LAPTOP → PHONE:** `PENDING`  
+**Порядок первого запуска:** `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`  
 **Дата документа:** 2026-11-02
 
 > Этот документ описывает **ручной** сценарий. Приложение не управляет

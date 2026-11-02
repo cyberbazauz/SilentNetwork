@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 1.9  
+**Версия:** 2.0  
 **Дата создания:** 2026-11-01  
-**Последнее обновление:** 2026-11-02 — Agent 1, SN-014 и SN-015: код готов, физические тесты PENDING  
+**Последнее обновление:** 2026-11-02 — Agent 1, SN-015: Windows и Android объединены в `agent1/m0-acoustic-lab`; APK и Windows launcher готовы; физический тест `PENDING`  
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1 и Gemini. Агент, который выполняет задачу, обновляет её статус и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -64,7 +64,7 @@
 | SN-012 | Захват и анализ сигнала | Agent 1 | DONE | `snlab/calibration.py` + `calibrate.py`: тон-план, генерация, захват, уровень/SNR/смещение частоты/клиппинг, WAV+JSON+PNG; физический режим только с `--hardware-test`, безопасны `--list-devices` и `--analyze`; тесты на синтетике и фейковом аудиобэкенде. Реальный акустический PASS не заявляется: физическая часть — PENDING |
 | SN-013 | Benchmark: BER, PER, goodput, задержка и потери | Agent 1 | DONE | `snlab/benchmark.py` + `benchmark.py`: 100 испытаний на каждую точку 0/5/10/15/20 дБ, AWGN по мощности активной области, диагностический BER до CRC, PER со всеми отказами, CSV/JSON/PNG/`M0-report.md`; 45 новых тестов (240 всего); M0-6 — 100/100 при 15 дБ. Goodput и задержка не измерялись: файловый канал не передаёт в реальном времени |
 | SN-014 | Hardware Calibration: генератор тонов, анализатор WAV, частотная характеристика | Agent 1 | IN_PROGRESS | Код готов: `snlab/tones.py`, `snlab/analysis.py`, `snlab/response.py`, CLI `tonegen.py`, `analyze.py`, `response.py`; всё работает только с файлами, устройства не открываются без `--hardware-test`. План на 11 шагов — `docs/hardware-calibration/SN-014-TEST-PLAN.md`. Полный прогон: 400 passed. **Физические измерения — PENDING**: не выполнялись, PASS не заявляется |
-| SN-015 | Windows Desktop Lab: LAPTOP → PHONE, ручной PLAY и анализ WAV телефона | Agent 1 | IN_PROGRESS | Код готов: `desktop_app.py` (Tkinter, FILE-ONLY по умолчанию), `snlab/desktop.py`, `snlab/playback.py`, `run_desktop.bat`. PLAY только с `--hardware-test` и подтверждением; список устройств без автовыбора; JSON только после фактического PLAY; импорт WAV телефона с JSON/CSV/PSD/спектрограммой; SNR = N/A. 39 новых тестов, полный прогон 439 passed; GUI smoke-test без звука выполнен. Инструкция: `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md`. **Физическое воспроизведение и LAPTOP → PHONE — PENDING**: не выполнялись, PASS не заявляется |
+| SN-015 | Windows Desktop Lab + Android Receiver: LAPTOP → PHONE, ручной PLAY и анализ WAV телефона | Agent 1 | REVIEW | Код готов и объединён: `desktop_app.py` (Tkinter, FILE-ONLY по умолчанию), `snlab/desktop.py`, `snlab/playback.py`, `run_desktop.bat`; Android Receiver с PCM16 WAV, JSON, Test ID и фиксацией маршрута. PLAY только с `--hardware-test` и подтверждением; JSON только после фактического PLAY. Merge commit `aba35cc`. Прежние независимые прогоны: Python 439 passed, Android 56+56 = 112. После merge повторно: Python 439 passed, Android 112 (failures 0), APK `3 392 577` байт. Инструкция: `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md`; доставка: `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`. **Физическое воспроизведение и LAPTOP → PHONE — PENDING**: не выполнялись, PASS не заявляется |
 
 ### Этап 2 — Первый акустический модем
 
@@ -127,6 +127,14 @@
 - Следующий шаг: закрытие M0 по фактическим результатам и решение Product Owner о переходе к M1 (SN-022). Для M1 нужен подтверждённый второй Windows-ПК.
 - Блокеры: второй Windows-ПК не подтверждён (нужен только для M1); Rust toolchain отложен решением Product Owner; контракт `docs/android-core-api.md` отсутствует (запрос Gemini `REQ-CORE-001`).
 
+**Обновлено 2026-11-02 (Agent 1, интеграция SN-015):**
+
+- Android-ветка `agent1/sn015-android` (`5069513`) объединена в `agent1/m0-acoustic-lab` через `--no-ff`; merge commit `aba35cc`. Конфликтов нет. Android-файлы идентичны `5069513`, Windows-код идентичен `f497f66`.
+- Готовы: Android APK (`dist/SilentNetwork-Android.apk`), Windows launcher (`dist/SilentNetwork-Desktop/`), единый WAV/JSON контракт, инструкция первого теста `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`.
+- Статусы: Windows Desktop Lab — `DONE`; Android Receiver — `DONE`; WAV compatibility — `DONE`; JSON contract — `DONE`; Physical Laptop → Phone — `PENDING`.
+- Числа 439 Python-тестов и 112 Android-тестов ранее были получены независимыми прогонами до merge и сами по себе слияние не подтверждают. После merge выполнены повторные прогоны: Python `439 passed` (0 failed, 19.62 s), Android debug 56 + release 56 = `112`, failures 0, errors 0; APK собран заново (`3 392 577` байт). Детали — в `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md` §10.1.
+- PyInstaller в окружении отсутствует; standalone EXE не собирался. Windows-версия поставляется как Python launcher + инструкция, без изменения системного окружения.
+
 **Обновлено 2026-11-02 (Agent 1):**
 
 - `SN-015` — код Windows Desktop Lab готов: Tkinter GUI с секциями OUTPUT DEVICE, TEST SIGNAL GENERATOR, PLAYBACK, PHONE WAV → ANALYSIS; playback-сервис с `FakePlaybackEngine` и STOP; строгая проверка SHA-256 перед PLAY; JSON только после фактической попытки; импорт PCM16 WAV телефона с анализом, CSV, PSD и спектрограммой. По умолчанию FILE-ONLY; физический PLAY только с `--hardware-test` и подтверждением. 39 новых тестов, полный прогон `439 passed`; `python desktop_app.py --smoke-test` выполнен без звука. **Физическое воспроизведение и LAPTOP → PHONE не выполнялись** — статус `PENDING`, критерии в `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md`.
@@ -145,7 +153,7 @@
 2. Согласовать структуру и содержание `docs/architecture.md` (SN-003).
 3. Подтвердить второго участника Windows ↔ Windows до начала M1.
 4. (Gemini) Разрешить переход к SN-004 — создание Android app skeleton.
-5. Разрешить физический прогон SN-015 (динамик ноутбука → микрофон Android) и утвердить пороги PASS/FAIL из `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md`.
+5. Разрешить физический прогон SN-015 (динамик ноутбука → микрофон Android) и утвердить пороги PASS/FAIL из `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md`. Программы готовы: `dist/SilentNetwork-Android.apk` и `dist/SilentNetwork-Desktop/`; порядок запуска — `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`.
 
 ## 6. Журнал изменений
 
@@ -160,6 +168,7 @@
 | 2026-11-01 | Agent 1 | SN-021 выполнен: файловый BFSK-приёмник с поиском преамбулы 32/32, некогерентной демодуляцией, проверкой sync word/версии/длины/CRC-16, CLI и JSON-отчётом; 44 новых теста, 2 заглушки удалены, 195 тестов проходят; SN-021 → DONE, SN-013 → READY | Версия 1.6 |
 | 2026-11-01 | Agent 1 | SN-013 выполнен: воспроизводимый BER/PER benchmark на AWGN, 100 испытаний на точки 0/5/10/15/20 дБ, диагностический BER до CRC, отдельная M0-6 100×32 при 15 дБ (100/100, PASS); 45 новых тестов, 240 всего; SN-013 → DONE | Версия 1.7 |
 | 2026-11-02 | Agent 1 | SN-015: Windows Desktop Lab — `desktop_app.py`, `snlab/desktop.py`, `snlab/playback.py`, `.bat`, инструкция; 39 новых тестов, 439 passed; GUI smoke-test без звука; физика PENDING | Версия 1.9 |
+| 2026-11-02 | Agent 1 | SN-015 integration: merge `agent1/sn015-android` (`5069513`) в `agent1/m0-acoustic-lab`, merge commit `aba35cc`; Android APK и Windows launcher в `dist/`; SN-015 → REVIEW (код DONE, физика PENDING) | Версия 2.0 |
 
 ## 7. Шаблон добавления задачи
 
