@@ -57,6 +57,7 @@ object NavigationStateManager {
     fun resolveTabTag(tabId: Int): String {
         return when (tabId) {
             R.id.tab_status -> "tab_status"
+            R.id.tab_audio_lab -> "tab_audio_lab"
             R.id.tab_messenger -> "tab_messenger"
             R.id.tab_devices -> "tab_devices"
             R.id.tab_settings -> "tab_settings"
@@ -67,6 +68,7 @@ object NavigationStateManager {
     fun isKnownTab(tabId: Int): Boolean {
         return tabId in listOf(
             R.id.tab_status,
+            R.id.tab_audio_lab,
             R.id.tab_messenger,
             R.id.tab_devices,
             R.id.tab_settings

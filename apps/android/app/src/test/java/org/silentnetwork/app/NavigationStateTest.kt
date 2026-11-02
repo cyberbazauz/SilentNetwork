@@ -14,6 +14,7 @@ class NavigationStateTest {
     @Test
     fun testResolveTabTag() {
         assertEquals("tab_status", NavigationStateManager.resolveTabTag(R.id.tab_status))
+        assertEquals("tab_audio_lab", NavigationStateManager.resolveTabTag(R.id.tab_audio_lab))
         assertEquals("tab_messenger", NavigationStateManager.resolveTabTag(R.id.tab_messenger))
         assertEquals("tab_devices", NavigationStateManager.resolveTabTag(R.id.tab_devices))
         assertEquals("tab_settings", NavigationStateManager.resolveTabTag(R.id.tab_settings))
@@ -23,6 +24,7 @@ class NavigationStateTest {
     @Test
     fun testIsKnownTab() {
         assertTrue(NavigationStateManager.isKnownTab(R.id.tab_status))
+        assertTrue(NavigationStateManager.isKnownTab(R.id.tab_audio_lab))
         assertTrue(NavigationStateManager.isKnownTab(R.id.tab_messenger))
         assertTrue(NavigationStateManager.isKnownTab(R.id.tab_devices))
         assertTrue(NavigationStateManager.isKnownTab(R.id.tab_settings))

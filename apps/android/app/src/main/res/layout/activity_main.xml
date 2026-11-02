@@ -114,6 +114,33 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/tab_audio_lab"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/iv_tab_audio_lab"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:contentDescription="@string/tab_audiolab"
+                android:src="@drawable/ic_tab_audiolab" />
+
+            <TextView
+                android:id="@+id/tv_tab_audio_lab"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/tab_audiolab"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/tab_messenger"
             android:layout_width="0dp"
             android:layout_height="match_parent"
