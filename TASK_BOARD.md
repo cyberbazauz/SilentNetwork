@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 2.6
+**Версия:** 2.7
 **Дата создания:** 2026-11-01
-**Последнее обновление:** 2026-11-02 — Agent 1: SN-024 выполнен (контракт, Python data link, профили, векторы, 471 passed); физический аудиотест `PENDING`, пороги и диапазон всё ещё ждут решения Product Owner
+**Последнее обновление:** 2026-11-02 — Agent 1: SN-025 выполнен (Windows Desktop Lab: передача и приём текста через звук, WAV/JSON, 488 passed); физический аудиотест `PENDING`, пороги и диапазон всё ещё ждут решения Product Owner
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1. Агент обновляет статус задачи и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -78,7 +78,7 @@
 | SN-022 | Реальные испытания Windows ↔ Windows | Agent 1 | BACKLOG | Сообщения передаются по акустике; сохранены настройки, BER/PER и условия теста |
 | SN-023 | Исследовать диапазоны и профили на нескольких устройствах | Agent 1 | BACKLOG | Измерительный отчёт; слышимость и ограничения документированы |
 | SN-024 | Контракт Acoustic Data Link v0 и кросс-языковые тестовые векторы | Agent 1 | DONE | `docs/acoustic-data-link.md`, профили `data-audible`/`data-robust` в `config.py` (DEFAULT_PROFILE без изменения), `snlab/datalink.py`, `receiver.py` с `min_preamble_matches` (по умолчанию 32/32), векторы `tests/fixtures/data-link-vectors.json` и копия в `apps/android/app/src/test/resources/`; тесты `tests/test_datalink.py` (24 теста) + обновлённые `test_config.py`; `471 passed`. Frame v1 и CRC не менялись. Кросс-языковая совместимость — по декодированию. |
-| SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | BACKLOG | Карточки «Передать сообщение» и «Принять сообщение»: подтверждение PLAY, запись микрофона по кнопке, декодирование, человеческий вердикт, WAV/JSON; тесты с фейковыми движками |
+| SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | DONE | `snlab/datalink_desktop.py` + карточки в `desktop_app.py`: подтверждение PLAY, запись микрофона по кнопке, декодирование, человекочитаемый вердикт, WAV/JSON (playback/receive схемы), фейковые тесты; `tests/test_sn025_datalink_desktop.py` (17 тестов); `488 passed`. Физический воздух-тест — SN-028. |
 | SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | BACKLOG | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты, `assembleDebug`; без фейковых состояний связи |
 | SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | BACKLOG | Python-кадр декодируется Kotlin, Kotlin-кадр декодируется Python; фактические результаты и команды сохранены |
 | SN-028 | Физический тест передачи данных и отчёт | Agent 1 | BACKLOG | Протокол, серия опытов на 30 см / 1 м / 3 м, WAV/JSON, успешность и ложные срабатывания; PASS только при утверждённых порогах |
@@ -161,6 +161,13 @@
 - Созданы `tests/fixtures/data-link-vectors.json` и копия `apps/android/app/src/test/resources/data-link-vectors.json`: ASCII, кириллица, 64 байта, пустой payload, 65 байт, повреждённый CRC, обрезанный кадр, чистый шум.
 - `tests/test_datalink.py` — 24 теста; обновлён `test_config.py`. Полный прогон: **471 passed**. Физическая передача через воздух не выполнялась и не заявляется.
 
+**Обновлено 2026-11-02 (Agent 1, SN-025 выполнен):**
+
+- Добавлен `snlab/datalink_desktop.py`: генерация WAV+JSON, PLAY через движок с проверкой SHA-256 файла, запись микрофона и декодирование. Схемы отчётов `data-link-playback/1` и `data-link-receive/1`.
+- В `desktop_app.py` добавлены карточки «Передать сообщение» и «Принять сообщение»: выбор профиля, подтверждение PLAY, выбор микрофона, запись по кнопке, человекочитаемый вердикт и `error_type`, пути к WAV/JSON.
+- `tests/test_sn025_datalink_desktop.py` — 17 тестов: бэкенд и GUI с `FakePlaybackEngine` и фейковой записью. Полный прогон: **488 passed**.
+- `python desktop_app.py --smoke-test` — exit 0. Физическая передача через воздух не выполнялась: это SN-028.
+
 **Обновлено 2026-11-02 (Agent 1, интеграция SN-015):**
 
 - Android-ветка `agent1/sn015-android` (`5069513`) объединена в `agent1/m0-acoustic-lab` через `--no-ff`; merge commit `aba35cc`. Конфликтов нет. Android-файлы идентичны `5069513`, Windows-код идентичен `f497f66`.
@@ -214,6 +221,7 @@
 | 2026-11-02 | Agent 1 | Проект сведён в одну папку `C:\Projects\SilentNetwork`; worktree `SilentNetwork-agent1` и `SilentNetwork-android` удалены; Gemini выведен из проекта, задачи переназначены Agent 1; `GEMINI.md` и `PROMPT_GEMINI.txt` удалены; AGENTS/README/PROMPT обновлены | Версия 2.4 |
 | 2026-11-02 | Agent 1 | Составлен план Acoustic Data Link v0: передача текста в Frame v1 через слышимый профиль 1200/2200 Гц; задачи SN-024…SN-028; Windows → Android приоритетный; требования по кросс-проверке Python ↔ Kotlin и физическому тесту; пороги ждут PO | Версия 2.5 |
 | 2026-11-02 | Agent 1 | SN-024: контракт `docs/acoustic-data-link.md`, профили данных, `snlab/datalink.py`, `receiver.min_preamble_matches` (32/32 по умолчанию), кросс-языковые векторы; Python 471 passed; физика PENDING | Версия 2.6 |
+| 2026-11-02 | Agent 1 | SN-025: Windows Desktop Lab — передача и приём текста через звук, `snlab/datalink_desktop.py`, карточки в `desktop_app.py`, WAV/JSON, фейковые тесты; Python 488 passed; физика PENDING | Версия 2.7 |
 
 ## 7. Шаблон добавления задачи
 

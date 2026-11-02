@@ -38,8 +38,12 @@ else:
     _TK_IMPORT_ERROR = None
 
 try:
+    from snlab import audio
+    from snlab import datalink_desktop as data_desktop
     from snlab import desktop, playback
 except ImportError as _dependency_exc:  # pragma: no cover - зависит от окружения
+    audio = None  # type: ignore[assignment]
+    data_desktop = None  # type: ignore[assignment]
     desktop = None  # type: ignore[assignment]
     playback = None  # type: ignore[assignment]
     _DEPENDENCY_ERROR: Exception | None = _dependency_exc
@@ -180,7 +184,10 @@ class DesktopApp:
         results_dir: str | Path | None = None,
         engine: Any | None = None,
         device_lister: Callable[[], list[Any]] | None = None,
+        input_device_lister: Callable[[], list[Any]] | None = None,
+        recorder: Callable[..., Any] | None = None,
         confirm_playback: Callable[[Any, Any], bool] | None = None,
+        confirm_data_playback: Callable[[Any, Any], bool] | None = None,
         analyzer: Callable[..., Any] | None = None,
     ) -> None:
         if desktop is None or playback is None:
@@ -202,6 +209,13 @@ class DesktopApp:
         self.device_lister = device_lister or desktop.list_output_devices
         self.confirm_playback = confirm_playback or self._ask_confirm
         self.analyzer = analyzer or desktop.analyze_phone_wav
+        self.input_device_lister = (
+            input_device_lister
+            if input_device_lister is not None
+            else (data_desktop.list_input_devices if data_desktop is not None else (lambda: []))
+        )
+        self.recorder = recorder or audio.record_ambient
+        self.confirm_data_playback = confirm_data_playback or self._ask_confirm_data
 
         self.devices: list[Any] = []
         self.selected_device: Any | None = None
@@ -214,10 +228,24 @@ class DesktopApp:
         self._spectrogram_image: Any | None = None
         self._device_panel_open = False
 
+        self.data_input_devices: list[Any] = []
+        self.data_selected_input: Any | None = None
+        self.data_profile_var = tk.StringVar(value="data-audible")
+        self.data_text_var = tk.StringVar(value="SILENTNETWORK")
+        self.data_duration_var = tk.StringVar(value="12")
+        self.data_generated = None
+        self.data_received = None
+        self.data_playing = False
+        self.data_recording = False
+        self._data_play_queue: queue.Queue[tuple[str, Any]] | None = None
+        self._data_record_queue: queue.Queue[tuple[str, Any]] | None = None
+
         _configure_style(root)
         self._build_ui()
         self._update_playback_state()
         self.refresh_devices()
+        self.refresh_data_inputs()
+        self._update_data_play_state()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------ UI
@@ -313,6 +341,13 @@ class DesktopApp:
         self._build_device_section(left)
         self._build_generator_section(left)
         self._build_phone_section(right)
+
+        data_band = ttk.Frame(content)
+        data_band.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(14, 0))
+        data_band.columnconfigure(0, weight=1, uniform="data")
+        data_band.columnconfigure(1, weight=1, uniform="data")
+        self._build_data_send_section(data_band)
+        self._build_data_receive_section(data_band)
 
     def _on_content_scroll(self, first: str, last: str) -> None:
         self.content_scroll.set(first, last)
@@ -813,6 +848,591 @@ class DesktopApp:
         )
         self.spectrogram_label.grid(row=2, column=0, sticky="ew", pady=(6, 0))
 
+    # ------------------------------------------------------------- data link
+
+    def _build_data_send_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Передать сообщение",
+            "Текст до 64 байт UTF-8 в кадре Frame v1 через звук",
+        )
+        outer.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        body.columnconfigure(1, weight=1)
+
+        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(12, 2), padx=(0, 10)
+        )
+        self.data_profile_box = ttk.Combobox(
+            body,
+            textvariable=self.data_profile_var,
+            values=sorted(data_desktop.DATA_PROFILE_NAMES)
+            if data_desktop is not None
+            else ["data-audible", "data-robust"],
+            state="readonly",
+        )
+        self.data_profile_box.grid(row=0, column=1, sticky="ew", pady=(12, 2))
+
+        ttk.Label(body, text="Сообщение", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(body, textvariable=self.data_text_var).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(
+            body,
+            text=(
+                "Слышимый диапазон: 1200/2200 Гц, 300 бод. "
+                "CRC-16 обнаруживает ошибки, но не аутентифицирует отправителя."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        ttk.Button(
+            body,
+            text="Создать сообщение",
+            style="Accent.TButton",
+            command=self.generate_data,
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 6))
+
+        self.data_generated_info = ttk.Label(
+            body,
+            text="Сообщение ещё не создано.",
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.data_generated_info.grid(row=4, column=0, columnspan=2, sticky="ew")
+
+        play_row = ttk.Frame(body, style="Card.TFrame")
+        play_row.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        play_row.columnconfigure(0, weight=1)
+        play_row.columnconfigure(1, weight=1)
+        self.data_play_button = ttk.Button(
+            play_row,
+            text="Воспроизвести",
+            style="Accent.TButton",
+            command=self.request_data_playback,
+            state="disabled",
+        )
+        self.data_play_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.data_stop_button = ttk.Button(
+            play_row,
+            text="Стоп",
+            style="Danger.TButton",
+            command=self.request_stop,
+            state="disabled",
+        )
+        self.data_stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.data_play_hint = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.data_play_hint.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
+        self.data_play_status = ttk.Label(
+            body,
+            text="Воспроизведения не было.",
+            style="Card.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.data_play_status.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        self.data_play_json = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.data_play_json.grid(row=8, column=0, columnspan=2, sticky="ew")
+
+    def _build_data_receive_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Принять сообщение",
+            "Запись с микрофона и декодирование кадра",
+        )
+        outer.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        body.columnconfigure(1, weight=1)
+
+        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(12, 2), padx=(0, 10)
+        )
+        ttk.Combobox(
+            body,
+            textvariable=self.data_profile_var,
+            values=sorted(data_desktop.DATA_PROFILE_NAMES)
+            if data_desktop is not None
+            else ["data-audible", "data-robust"],
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(12, 2))
+
+        ttk.Label(body, text="Микрофон", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        self.data_input_box = ttk.Combobox(body, state="readonly")
+        self.data_input_box.grid(row=1, column=1, sticky="ew", pady=2)
+        self.data_input_box.bind(
+            "<<ComboboxSelected>>", self._on_data_input_selected
+        )
+
+        ttk.Label(body, text="Запись, с", style="Field.TLabel").grid(
+            row=2, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(body, textvariable=self.data_duration_var).grid(
+            row=2, column=1, sticky="ew", pady=2
+        )
+
+        buttons = ttk.Frame(body, style="Card.TFrame")
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 6))
+        buttons.columnconfigure(0, weight=1)
+        buttons.columnconfigure(1, weight=1)
+        ttk.Button(
+            buttons,
+            text="Обновить микрофоны",
+            style="Secondary.TButton",
+            command=self.refresh_data_inputs,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.data_record_button = ttk.Button(
+            buttons,
+            text="Записать и декодировать",
+            style="Accent.TButton",
+            command=self.record_and_decode,
+        )
+        self.data_record_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.data_record_status = ttk.Label(
+            body,
+            text="Запись ещё не выполнялась.",
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.data_record_status.grid(row=4, column=0, columnspan=2, sticky="ew")
+
+        self.data_verdict_panel = tk.Frame(body, bg=COLOR_NEUTRAL_BG)
+        self.data_verdict_panel.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 8))
+        self.data_verdict_panel.columnconfigure(0, weight=1)
+        self.data_verdict_label = tk.Label(
+            self.data_verdict_panel,
+            text="Сообщение ещё не принималось",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+            padx=14,
+            pady=10,
+        )
+        self.data_verdict_label.grid(row=0, column=0, sticky="ew")
+        self.data_verdict_hint = tk.Label(
+            self.data_verdict_panel,
+            text="Нажмите «Записать и декодировать», когда прозвучит сообщение.",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=440,
+            padx=14,
+            pady=0,
+        )
+        self.data_verdict_hint.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        self.data_received_text = ttk.Label(
+            body,
+            text="",
+            style="Value.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.data_received_text.grid(row=6, column=0, columnspan=2, sticky="ew")
+
+        self.data_record_json = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.data_record_json.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
+    # --------------------------------------------------------- data actions
+
+    def refresh_data_inputs(self) -> None:
+        if data_desktop is None:
+            self.data_record_status.configure(
+                text="Модуль передачи данных недоступен: проверьте зависимости."
+            )
+            return
+        try:
+            devices = self.input_device_lister()
+        except Exception as exc:  # noqa: BLE001 - отказ аудиобэкенда показываем
+            self.data_record_status.configure(
+                text=f"Не удалось получить микрофоны: {type(exc).__name__}: {exc}"
+            )
+            return
+        self.data_input_devices = [device for device in devices if device.is_input]
+        labels = [
+            f"[{device.index}] {device.name}" for device in self.data_input_devices
+        ]
+        self.data_input_box.configure(values=labels)
+        if not labels:
+            self.data_selected_input = None
+            self.data_input_box.set("")
+            self.data_record_status.configure(
+                text="Входных устройств не найдено. Проверьте микрофон Windows."
+            )
+            return
+        preferred = next(
+            (
+                device
+                for device in self.data_input_devices
+                if getattr(device, "is_default_input", False)
+            ),
+            self.data_input_devices[0],
+        )
+        self.data_selected_input = preferred
+        position = self.data_input_devices.index(preferred)
+        self.data_input_box.current(position)
+        self.data_record_status.configure(
+            text=f"Найдено микрофонов: {len(labels)}. Выбран: {preferred.name}."
+        )
+
+    def _on_data_input_selected(self, _event: Any | None = None) -> None:
+        position = self.data_input_box.current()
+        if 0 <= position < len(self.data_input_devices):
+            self.data_selected_input = self.data_input_devices[position]
+
+    def generate_data(self) -> None:
+        if data_desktop is None:
+            messagebox.showerror(
+                "Передача данных", "Модуль передачи данных недоступен.", parent=self.root
+            )
+            return
+        text = self.data_text_var.get()
+        try:
+            generated = data_desktop.generate_data_message(
+                text,
+                self.data_profile_var.get(),
+                self.results_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self.data_generated_info.configure(
+                text=f"Сообщение не создано: {exc}"
+            )
+            messagebox.showerror("Сообщение не создано", str(exc), parent=self.root)
+            return
+        self.data_generated = generated
+        payload_bytes = generated.report.get("payload_bytes", 0)
+        self.data_generated_info.configure(
+            text=(
+                f"Готово: {payload_bytes} байт UTF-8 · "
+                f"{generated.profile.name} · {generated.file_duration_s:.2f} с\n"
+                f"Файл: {generated.wav_path.name}"
+            )
+        )
+        self.data_play_status.configure(
+            text="Сообщение создано беззвучно. Воспроизведение не выполнялось."
+        )
+        self.data_play_json.configure(text="")
+        self._update_data_play_state()
+
+    def _update_data_play_state(self) -> None:
+        generated = self.data_generated
+        device = self.selected_device
+        if generated is None:
+            self.data_play_hint.configure(text="Сначала создайте сообщение.")
+        elif device is None:
+            self.data_play_hint.configure(
+                text="Динамик не найден. Нажмите «Обновить список» выше."
+            )
+        elif self.data_playing:
+            self.data_play_hint.configure(
+                text="Идёт воспроизведение сообщения. «Стоп» прерывает его."
+            )
+        else:
+            self.data_play_hint.configure(
+                text="Перед стартом приложение попросит подтверждение."
+            )
+        allowed = (
+            generated is not None
+            and device is not None
+            and self.engine is not None
+            and not self.data_playing
+            and not self._playing
+        )
+        self.data_play_button.configure(state="normal" if allowed else "disabled")
+        self.data_stop_button.configure(
+            state="normal"
+            if (self.data_playing or self._playing) and self.engine is not None
+            else "disabled"
+        )
+
+    def _ask_confirm_data(self, generated: Any, device: Any) -> bool:
+        duration = generated.file_duration_s
+        return bool(
+            messagebox.askyesno(
+                "Подтверждение передачи",
+                (
+                    "Сейчас через выбранный динамик прозвучит сообщение.\n\n"
+                    f"Текст: {generated.text}\n"
+                    f"Профиль: {generated.profile.name}\n"
+                    f"Длительность: {duration:.2f} с\n"
+                    f"Устройство: {device.name}\n\n"
+                    "Сообщение не зашифровано. Продолжить?"
+                ),
+                parent=self.root,
+                icon="warning",
+            )
+        )
+
+    def request_data_playback(self) -> bool:
+        if data_desktop is None:
+            return False
+        if self.data_generated is None:
+            self.data_play_status.configure(text="Сначала создайте сообщение.")
+            return False
+        if self.selected_device is None:
+            self.data_play_status.configure(text="Сначала выберите динамик ноутбука.")
+            return False
+        if self.engine is None:
+            self.data_play_status.configure(
+                text="Воспроизведение недоступно: аудиодвижок не загружен."
+            )
+            return False
+        if self.data_playing or self._playing:
+            self.data_play_status.configure(text="Воспроизведение уже идёт.")
+            return False
+        if not self.confirm_data_playback(self.data_generated, self.selected_device):
+            self.data_play_status.configure(
+                text="Воспроизведение отменено пользователем; JSON не создавался."
+            )
+            return False
+
+        generated = self.data_generated
+        device = self.selected_device
+        self.data_playing = True
+        self._data_play_queue = queue.Queue()
+        self.data_play_status.configure(text="Воспроизведение сообщения выполняется…")
+        self.data_play_json.configure(text="")
+        self._update_data_play_state()
+
+        def worker() -> None:
+            try:
+                record = data_desktop.play_data_message(
+                    generated,
+                    device,
+                    engine=self.engine,
+                    hardware_test=True,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                assert self._data_play_queue is not None
+                self._data_play_queue.put(("error", exc))
+            else:
+                assert self._data_play_queue is not None
+                self._data_play_queue.put(("record", record))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(100, self._poll_data_playback)
+        return True
+
+    def _poll_data_playback(self) -> None:
+        if self._data_play_queue is None:
+            return
+        try:
+            kind, payload = self._data_play_queue.get_nowait()
+        except queue.Empty:
+            if self.data_playing:
+                self.root.after(100, self._poll_data_playback)
+            return
+        self.data_playing = False
+        if kind == "record":
+            self._on_data_playback_record(payload)
+        else:
+            self.data_play_status.configure(
+                text=f"PLAY не выполнен: {type(payload).__name__}: {payload}"
+            )
+        self._update_data_play_state()
+
+    def _on_data_playback_record(self, record: Any) -> None:
+        if record.status == "completed" and record.performed:
+            text = (
+                f"PLAY завершён: воспроизведено {record.frames_written} "
+                f"из {record.frames_total} отсчётов за {record.elapsed_s:.2f} с. "
+                "Приём этим не подтверждён."
+            )
+        elif record.status == "stopped":
+            text = (
+                "PLAY остановлен: сообщение прозвучало не полностью "
+                f"({record.frames_written} из {record.frames_total} отсчётов)."
+            )
+        else:
+            text = (
+                "PLAY завершился ошибкой: "
+                f"{record.error or 'причина не сообщена драйвером'}"
+            )
+        self.data_play_status.configure(text=text)
+        self.data_play_json.configure(text=f"JSON: {record.json_path}")
+
+    def record_and_decode(self) -> None:
+        if data_desktop is None:
+            return
+        if self.data_selected_input is None:
+            self.data_record_status.configure(
+                text="Сначала выберите микрофон и нажмите «Обновить микрофоны»."
+            )
+            return
+        if self.data_recording:
+            return
+        try:
+            duration = float(self.data_duration_var.get().strip().replace(",", "."))
+        except ValueError:
+            messagebox.showerror(
+                "Длительность записи",
+                f"Ожидается число, получено {self.data_duration_var.get()!r}",
+                parent=self.root,
+            )
+            return
+
+        device = self.data_selected_input
+        profile = self.data_profile_var.get()
+        self.data_recording = True
+        self._data_record_queue = queue.Queue()
+        self.data_record_button.configure(state="disabled")
+        self.data_record_status.configure(
+            text=f"Идёт запись {duration:g} с. Сейчас должно прозвучать сообщение…"
+        )
+        self._set_data_verdict(
+            "Идёт запись", "Не закрывайте окно до завершения записи.", COLOR_MUTED
+        )
+        self.root.update_idletasks()
+
+        def worker() -> None:
+            try:
+                received = data_desktop.receive_data(
+                    profile,
+                    device,
+                    duration,
+                    self.results_dir,
+                    recorder=self.recorder,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку драйвера показываем
+                assert self._data_record_queue is not None
+                self._data_record_queue.put(("error", exc))
+            else:
+                assert self._data_record_queue is not None
+                self._data_record_queue.put(("received", received))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(150, self._poll_data_record)
+
+    def _poll_data_record(self) -> None:
+        if self._data_record_queue is None:
+            return
+        try:
+            kind, payload = self._data_record_queue.get_nowait()
+        except queue.Empty:
+            if self.data_recording:
+                self.root.after(150, self._poll_data_record)
+            return
+        self.data_recording = False
+        self.data_record_button.configure(state="normal")
+        if kind == "received":
+            self._show_received_data(payload)
+        else:
+            self.data_record_status.configure(
+                text=f"Запись не выполнена: {type(payload).__name__}: {payload}"
+            )
+            self._set_data_verdict(
+                "Запись не выполнена",
+                "Проверьте микрофон Windows и права доступа к нему.",
+                COLOR_ERROR,
+            )
+
+    def _show_received_data(self, received: Any) -> None:
+        self.data_received = received
+        report = received.report
+        if received.ok:
+            self._set_data_verdict(
+                "Сообщение принято",
+                "CRC-16 кадра совпал. Это проверка целостности, но не подлинности.",
+                COLOR_SUCCESS,
+            )
+            self.data_received_text.configure(text=received.text or "")
+        else:
+            title, hint = self._describe_data_error(report)
+            self._set_data_verdict(title, hint, COLOR_ERROR)
+            self.data_received_text.configure(text="")
+        rms = report.get("recording", {}).get("rms_dbfs")
+        level = f" · RMS {rms:.1f} dBFS" if isinstance(rms, (int, float)) else ""
+        self.data_record_status.configure(
+            text=(
+                f"Записано {received.recording.duration_s:.2f} с"
+                f"{level}. Файл: {received.wav_path.name}"
+            )
+        )
+        self.data_record_json.configure(text=f"JSON: {received.json_path}")
+        self._request_content_sync()
+
+    @staticmethod
+    def _describe_data_error(report: Any) -> tuple[str, str]:
+        error_type = report.get("error_type")
+        message = str(report.get("message") or "Причина не сообщена.")
+        mapping = {
+            "signal_not_found": (
+                "Сигнал не найден",
+                "В записи нет уверенной преамбулы. Поднесите телефон или "
+                "динамик ближе и повторите передачу.",
+            ),
+            "sync_mismatch": (
+                "Кадр повреждён",
+                "Преамбула найдена, но синхрослово не совпало. "
+                "Помехи или неверный профиль.",
+            ),
+            "version_unsupported": (
+                "Неподдерживаемая версия",
+                "Кадр найден, но версия формата не поддерживается.",
+            ),
+            "length_invalid": (
+                "Неверная длина кадра",
+                "Длина payload вне допустимого диапазона.",
+            ),
+            "incomplete_frame": (
+                "Запись обрезана",
+                "Кадр не успел прозвучать целиком. Увеличьте длительность записи.",
+            ),
+            "crc_mismatch": (
+                "Ошибка CRC",
+                "Кадр принят с искажениями. Уменьшите расстояние или "
+                "используйте профиль data-robust.",
+            ),
+            "wav_format_error": (
+                "Неверный формат записи",
+                "Ожидается PCM16 mono на частоте профиля.",
+            ),
+            "wav_not_found": (
+                "Файл записи не найден",
+                "Запись не была сохранена.",
+            ),
+            "payload_utf8_error": (
+                "Текст не декодируется",
+                "Кадр цел, но payload не является корректным UTF-8.",
+            ),
+            "receiver_error": (
+                "Ошибка приёма",
+                "Приёмник не смог обработать запись.",
+            ),
+        }
+        title, hint = mapping.get(
+            error_type,
+            (
+                "Сообщение не принято",
+                "Проверьте расстояние, громкость и выбранный профиль.",
+            ),
+        )
+        return title, f"{hint} ({message})"
+
+    def _set_data_verdict(self, title: str, hint: str, color: str) -> None:
+        self.data_verdict_label.configure(text=title, foreground=color)
+        self.data_verdict_hint.configure(text=hint)
+        self._request_content_sync()
+
     def _metric_tile(
         self, parent: Any, row: int, column: int, title: str, value: str
     ) -> Any:
@@ -1086,6 +1706,7 @@ class DesktopApp:
         else:
             hint = "Перед стартом приложение попросит подтверждение."
         self.play_hint.configure(text=hint)
+        self._update_data_play_state()
 
     def _ask_confirm(self, tone: Any, device: Any) -> bool:
         return bool(
