@@ -143,8 +143,38 @@ class BfskProfile:
 PROFILE_BFSK_16K = BfskProfile(name="bfsk-16k", mark_hz=16_000.0, space_hz=17_000.0)
 PROFILE_BFSK_18K = BfskProfile(name="bfsk-18k", mark_hz=18_000.0, space_hz=19_000.0)
 
+# Профили первого реального обмена данными (SN-024). Слышимый диапазон
+# выбран потому, что запись телефона уже подтвердила 1 кГц, а полоса
+# 18–19 кГц в той же записи практически пустая. Это экспериментальные
+# профили, а не обещание слышимости или дальности.
+PROFILE_DATA_AUDIBLE = BfskProfile(
+    name="data-audible",
+    mark_hz=1_200.0,
+    space_hz=2_200.0,
+    symbol_rate=300.0,
+    amplitude=0.30,
+)
+PROFILE_DATA_ROBUST = BfskProfile(
+    name="data-robust",
+    mark_hz=1_000.0,
+    space_hz=2_000.0,
+    symbol_rate=100.0,
+    amplitude=0.30,
+)
+
 PROFILES: Mapping[str, BfskProfile] = {
-    profile.name: profile for profile in (PROFILE_BFSK_16K, PROFILE_BFSK_18K)
+    profile.name: profile
+    for profile in (
+        PROFILE_BFSK_16K,
+        PROFILE_BFSK_18K,
+        PROFILE_DATA_AUDIBLE,
+        PROFILE_DATA_ROBUST,
+    )
+}
+
+DATA_PROFILES: Mapping[str, BfskProfile] = {
+    profile.name: profile
+    for profile in (PROFILE_DATA_AUDIBLE, PROFILE_DATA_ROBUST)
 }
 
 DEFAULT_PROFILE = PROFILE_BFSK_18K

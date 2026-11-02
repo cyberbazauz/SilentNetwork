@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 2.5
+**Версия:** 2.6
 **Дата создания:** 2026-11-01
-**Последнее обновление:** 2026-11-02 — Agent 1: предложен план Acoustic Data Link v0 (SN-024…SN-028), передача текста через звук; физический аудиотест `PENDING`, пороги и диапазон ждут решения Product Owner
+**Последнее обновление:** 2026-11-02 — Agent 1: SN-024 выполнен (контракт, Python data link, профили, векторы, 471 passed); физический аудиотест `PENDING`, пороги и диапазон всё ещё ждут решения Product Owner
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1. Агент обновляет статус задачи и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -77,7 +77,7 @@
 | SN-021 | Реализовать BFSK receiver и синхронизацию | Agent 1 | DONE | `snlab/receiver.py` + `receiver.py`: поиск преамбулы 32/32, уточнение начала, некогерентная демодуляция CPFSK, проверка sync word/версии/длины/CRC-16, JSON-отчёт и коды 0/2/3/4; 44 новых теста, 2 заглушки receiver удалены (195 всего); round-trip проверен на тексте, UTF-8, бинарных данных, длинах 1…512, начальной тишине и втором кадре |
 | SN-022 | Реальные испытания Windows ↔ Windows | Agent 1 | BACKLOG | Сообщения передаются по акустике; сохранены настройки, BER/PER и условия теста |
 | SN-023 | Исследовать диапазоны и профили на нескольких устройствах | Agent 1 | BACKLOG | Измерительный отчёт; слышимость и ограничения документированы |
-| SN-024 | Контракт Acoustic Data Link v0 и кросс-языковые тестовые векторы | Agent 1 | BACKLOG | После утверждения плана: `docs/acoustic-data-link.md`, профили `data-audible`/`data-robust`, Python `snlab/datalink.py`, векторы Frame v1 для Python ↔ Kotlin; тесты положительных и негативных случаев; Frame v1 и CRC не меняются |
+| SN-024 | Контракт Acoustic Data Link v0 и кросс-языковые тестовые векторы | Agent 1 | DONE | `docs/acoustic-data-link.md`, профили `data-audible`/`data-robust` в `config.py` (DEFAULT_PROFILE без изменения), `snlab/datalink.py`, `receiver.py` с `min_preamble_matches` (по умолчанию 32/32), векторы `tests/fixtures/data-link-vectors.json` и копия в `apps/android/app/src/test/resources/`; тесты `tests/test_datalink.py` (24 теста) + обновлённые `test_config.py`; `471 passed`. Frame v1 и CRC не менялись. Кросс-языковая совместимость — по декодированию. |
 | SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | BACKLOG | Карточки «Передать сообщение» и «Принять сообщение»: подтверждение PLAY, запись микрофона по кнопке, декодирование, человеческий вердикт, WAV/JSON; тесты с фейковыми движками |
 | SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | BACKLOG | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты, `assembleDebug`; без фейковых состояний связи |
 | SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | BACKLOG | Python-кадр декодируется Kotlin, Kotlin-кадр декодируется Python; фактические результаты и команды сохранены |
@@ -152,6 +152,15 @@
 - Добавлены задачи SN-024…SN-028: контракт и векторы, Windows TX/RX, Android TX/RX, кросс-проверка Python ↔ Kotlin, физический тест и отчёт.
 - **Код ещё не менялся.** Нужны решения Product Owner по диапазону, приоритету направления, лимиту payload и порогам PASS.
 
+**Обновлено 2026-11-02 (Agent 1, SN-024 выполнен):**
+
+- Создан контракт `docs/acoustic-data-link.md`: профили, Frame v1 без изменений, лимит 64 байта UTF-8, режим `acoustic` 28/32, типы ошибок, JSON-схема и правила кросс-языковых векторов.
+- В `snlab/config.py` добавлены `PROFILE_DATA_AUDIBLE` (1200/2200 Гц, 300 бод) и `PROFILE_DATA_ROBUST` (1000/2000 Гц, 100 бод), `DATA_PROFILES`. `DEFAULT_PROFILE` оставлен `bfsk-18k`, чтобы не менять существующее поведение.
+- Реализован `snlab/datalink.py`: текст → UTF-8 payload → Frame v1 → CPFSK → WAV с lead/tail тишиной и обратное декодирование с человекочитаемым `result`/`error_type`. CRC-16 явно помечен как не-аутентификация.
+- `snlab/receiver.py` получил параметр `min_preamble_matches` (по умолчанию 32/32) во всех путях декодирования. Строгий режим сохранён; 28/32 включается явно.
+- Созданы `tests/fixtures/data-link-vectors.json` и копия `apps/android/app/src/test/resources/data-link-vectors.json`: ASCII, кириллица, 64 байта, пустой payload, 65 байт, повреждённый CRC, обрезанный кадр, чистый шум.
+- `tests/test_datalink.py` — 24 теста; обновлён `test_config.py`. Полный прогон: **471 passed**. Физическая передача через воздух не выполнялась и не заявляется.
+
 **Обновлено 2026-11-02 (Agent 1, интеграция SN-015):**
 
 - Android-ветка `agent1/sn015-android` (`5069513`) объединена в `agent1/m0-acoustic-lab` через `--no-ff`; merge commit `aba35cc`. Конфликтов нет. Android-файлы идентичны `5069513`, Windows-код идентичен `f497f66`.
@@ -204,6 +213,7 @@
 | 2026-11-02 | Agent 1 | Проанализирована запись телефона `sn015_..._rx.wav`: PCM16, 48 кГц, моно, 8.1 с; обнаружен тон 999.9 Гц при ожидаемых 1000 Гц, смещение −0.1 Гц, запас обнаружения 54.5 дБ, клиппинга нет; SNR одиночной записи — N/A | Версия 2.3 |
 | 2026-11-02 | Agent 1 | Проект сведён в одну папку `C:\Projects\SilentNetwork`; worktree `SilentNetwork-agent1` и `SilentNetwork-android` удалены; Gemini выведен из проекта, задачи переназначены Agent 1; `GEMINI.md` и `PROMPT_GEMINI.txt` удалены; AGENTS/README/PROMPT обновлены | Версия 2.4 |
 | 2026-11-02 | Agent 1 | Составлен план Acoustic Data Link v0: передача текста в Frame v1 через слышимый профиль 1200/2200 Гц; задачи SN-024…SN-028; Windows → Android приоритетный; требования по кросс-проверке Python ↔ Kotlin и физическому тесту; пороги ждут PO | Версия 2.5 |
+| 2026-11-02 | Agent 1 | SN-024: контракт `docs/acoustic-data-link.md`, профили данных, `snlab/datalink.py`, `receiver.min_preamble_matches` (32/32 по умолчанию), кросс-языковые векторы; Python 471 passed; физика PENDING | Версия 2.6 |
 
 ## 7. Шаблон добавления задачи
 

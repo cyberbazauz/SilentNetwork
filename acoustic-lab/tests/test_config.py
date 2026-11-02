@@ -25,8 +25,28 @@ def test_default_profile_is_consistent() -> None:
 
 
 def test_known_profiles_are_indexed() -> None:
-    assert set(PROFILES) == {"bfsk-16k", "bfsk-18k"}
+    assert set(PROFILES) == {
+        "bfsk-16k",
+        "bfsk-18k",
+        "data-audible",
+        "data-robust",
+    }
     assert get_profile("bfsk-18k") is PROFILES["bfsk-18k"]
+
+
+def test_data_profiles_are_audible_and_divisible() -> None:
+    from snlab.config import DATA_PROFILES
+
+    assert set(DATA_PROFILES) == {"data-audible", "data-robust"}
+    audible = DATA_PROFILES["data-audible"]
+    robust = DATA_PROFILES["data-robust"]
+    assert audible.samples_per_symbol == 160
+    assert robust.samples_per_symbol == 480
+    assert audible.mark_hz == pytest.approx(1_200.0)
+    assert audible.space_hz == pytest.approx(2_200.0)
+    assert robust.mark_hz == pytest.approx(1_000.0)
+    assert robust.space_hz == pytest.approx(2_000.0)
+    assert DEFAULT_PROFILE is not audible
 
 
 def test_unknown_profile_raises() -> None:

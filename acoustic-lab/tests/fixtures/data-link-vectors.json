@@ -1,0 +1,161 @@
+{
+  "schema": "silentnetwork.acoustic-lab.data-link-vectors/1",
+  "crc_algorithm": "CRC-16/CCITT-FALSE",
+  "frame_version": 1,
+  "sync_word": "0x1ACF",
+  "default_profile": "data-audible",
+  "profiles": {
+    "data-audible": {
+      "name": "data-audible",
+      "sample_rate": 48000,
+      "mark_hz": 1200.0,
+      "space_hz": 2200.0,
+      "symbol_rate": 300.0,
+      "amplitude": 0.3,
+      "samples_per_symbol": 160,
+      "bit_rate_bps": 300.0
+    },
+    "data-robust": {
+      "name": "data-robust",
+      "sample_rate": 48000,
+      "mark_hz": 1000.0,
+      "space_hz": 2000.0,
+      "symbol_rate": 100.0,
+      "amplitude": 0.3,
+      "samples_per_symbol": 480,
+      "bit_rate_bps": 100.0
+    }
+  },
+  "notes": [
+    "Совместимость Python и Kotlin проверяется декодированием PCM, а не только SHA-256.",
+    "CRC-16 не является аутентификацией.",
+    "Для реального воздуха используется min_preamble_matches 28/32; для файлов 32/32.",
+    "PCM SHA-256 между ОС может отличаться в последнем разряде из-за np.sin/libm."
+  ],
+  "vectors": [
+    {
+      "id": "ascii-silentnetwork",
+      "description": "ASCII текст для первого физического теста",
+      "text": "SILENTNETWORK",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": true,
+      "payload_hex": "53494c454e544e4554574f524b",
+      "payload_bytes": 13,
+      "payload_sha256": "eb40e013dff22b059b2b55d61deacaad81fbad3d0e57c218a03606ba5e71dbdb",
+      "frame": {
+        "version": 1,
+        "sync_word": "0x1ACF",
+        "crc16": "0xD8B5",
+        "payload_bytes": 13,
+        "total_bits": 192
+      },
+      "bits_hex": "aaaaaaaa1acf01000d53494c454e544e4554574f524bd8b5"
+    },
+    {
+      "id": "cyrillic-check",
+      "description": "UTF-8 кириллица",
+      "text": "Проверка связи",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": true,
+      "payload_hex": "d09fd180d0bed0b2d0b5d180d0bad0b020d181d0b2d18fd0b7d0b8",
+      "payload_bytes": 27,
+      "payload_sha256": "f00dcb8ef6f0fae308a7cee2284ce0e9a749027f473d02808f7166eaeadfe232",
+      "frame": {
+        "version": 1,
+        "sync_word": "0x1ACF",
+        "crc16": "0xCD00",
+        "payload_bytes": 27,
+        "total_bits": 304
+      },
+      "bits_hex": "aaaaaaaa1acf01001bd09fd180d0bed0b2d0b5d180d0bad0b020d181d0b2d18fd0b7d0b8cd00"
+    },
+    {
+      "id": "ascii-ping",
+      "description": "Короткий ASCII",
+      "text": "PING",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": true,
+      "payload_hex": "50494e47",
+      "payload_bytes": 4,
+      "payload_sha256": "906055e56391a9362ff2e354e21a9e0ded69135ecadbea28eabcdf931686acbd",
+      "frame": {
+        "version": 1,
+        "sync_word": "0x1ACF",
+        "crc16": "0x204E",
+        "payload_bytes": 4,
+        "total_bits": 120
+      },
+      "bits_hex": "aaaaaaaa1acf01000450494e47204e"
+    },
+    {
+      "id": "max64",
+      "description": "Payload ровно 64 байта",
+      "text": "012345678901234567890123456789012345678901234567890123456789ABCD",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": true,
+      "payload_hex": "30313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383941424344",
+      "payload_bytes": 64,
+      "payload_sha256": "5b71e2193f8beda32c3dd855ebc7322f1f26fdcfc6f7fd3ee5d2a53f08e15644",
+      "frame": {
+        "version": 1,
+        "sync_word": "0x1ACF",
+        "crc16": "0x7267",
+        "payload_bytes": 64,
+        "total_bits": 600
+      },
+      "bits_hex": "aaaaaaaa1acf010040303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839414243447267"
+    },
+    {
+      "id": "empty",
+      "description": "Пустой текст — должен быть отклонён",
+      "text": "",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": false,
+      "error_type": "payload_invalid"
+    },
+    {
+      "id": "too_long65",
+      "description": "65 байт UTF-8 — должен быть отклонён",
+      "text": "012345678901234567890123456789012345678901234567890123456789ABCDE",
+      "profile": "data-audible",
+      "max_bytes": 64,
+      "expect_ok": false,
+      "error_type": "payload_invalid"
+    }
+  ],
+  "negative_decode": [
+    {
+      "id": "corrupted_crc",
+      "description": "Последний бит CRC перевёрнут",
+      "based_on": "ascii-silentnetwork",
+      "expect_ok": false,
+      "error_type": "crc_mismatch",
+      "bits_hex": "aaaaaaaa1acf01000d53494c454e544e4554574f524bd8b4"
+    },
+    {
+      "id": "truncated",
+      "description": "Кадр обрезан до половины",
+      "based_on": "ascii-silentnetwork",
+      "expect_ok": false,
+      "error_type": "incomplete_frame",
+      "bits_hex": "aaaaaaaa1acf01000d53494c"
+    },
+    {
+      "id": "noise_only",
+      "description": "Только белый шум, сигнала нет",
+      "based_on": null,
+      "expect_ok": false,
+      "error_type": "signal_not_found",
+      "noise": {
+        "seed": 20261102,
+        "amplitude": 0.02,
+        "samples": 48000
+      }
+    }
+  ]
+}

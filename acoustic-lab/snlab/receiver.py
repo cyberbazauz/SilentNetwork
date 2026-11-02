@@ -177,6 +177,7 @@ def decode_wav(
     profile: BfskProfile,
     *,
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DecodedFrame:
     """Прочитать PCM16 WAV и восстановить кадр.
 
@@ -184,6 +185,10 @@ def decode_wav(
         path: входной WAV; формат проверяется строго.
         profile: профиль, которым был промодулирован сигнал.
         max_payload_bytes: верхняя граница длины payload.
+        min_preamble_matches: сколько из 32 бит преамбулы должны совпасть.
+            По умолчанию 32/32 — строгий файловый режим. Для реального
+            акустического канала допускается 28/32; окончательное решение
+            всё равно принимается по sync word, версии, длине и CRC.
 
     Raises:
         FileNotFoundError: файл отсутствует.
@@ -198,6 +203,7 @@ def decode_wav(
         samples,
         profile,
         max_payload_bytes=max_payload_bytes,
+        min_preamble_matches=min_preamble_matches,
     )
 
 
@@ -206,11 +212,20 @@ def decode_samples(
     profile: BfskProfile,
     *,
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DecodedFrame:
     """Восстановить кадр из массива отсчётов в долях полной шкалы."""
     metric = bit_metric(samples, profile)
-    start = find_frame_start(metric, profile)
-    return decode_from_metric(metric, profile, start, max_payload_bytes=max_payload_bytes)
+    start = find_frame_start(
+        metric, profile, min_preamble_matches=min_preamble_matches
+    )
+    return decode_from_metric(
+        metric,
+        profile,
+        start,
+        max_payload_bytes=max_payload_bytes,
+        min_preamble_matches=min_preamble_matches,
+    )
 
 
 def demodulate_wav(
@@ -218,6 +233,7 @@ def demodulate_wav(
     profile: BfskProfile,
     *,
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DemodulatedBits:
     """Прочитать WAV и вернуть демодулированные биты до проверки CRC.
 
@@ -230,6 +246,7 @@ def demodulate_wav(
         samples,
         profile,
         max_payload_bytes=max_payload_bytes,
+        min_preamble_matches=min_preamble_matches,
     )
 
 
@@ -238,6 +255,7 @@ def demodulate_samples(
     profile: BfskProfile,
     *,
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DemodulatedBits:
     """Демодулировать доступные символы, не проверяя CRC и не подменяя кадр.
 
@@ -251,7 +269,9 @@ def demodulate_samples(
         ReceiverError: сигнал не одномерный или содержит NaN/бесконечность.
     """
     metric = bit_metric(samples, profile)
-    start = find_frame_start(metric, profile)
+    start = find_frame_start(
+        metric, profile, min_preamble_matches=min_preamble_matches
+    )
     symbols_per_bit = profile.samples_per_symbol
     symbols_available = max(
         0, (metric.size - start.sample + symbols_per_bit - 1) // symbols_per_bit
@@ -306,13 +326,19 @@ def decode_from_metric(
     start: FrameStart,
     *,
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DecodedFrame:
     """Демодулировать кадр, начиная с уже найденной преамбулы."""
     symbols_per_bit = profile.samples_per_symbol
 
     header = _read_bits(metric, start.sample, HEADER_BITS, symbols_per_bit)
-    if not np.array_equal(header[:PREAMBLE_BITS], (PREAMBLE_PATTERN > 0).astype(np.uint8)):
-        raise SignalNotFound("преамбула не совпала при повторной проверке")
+    expected_preamble = (PREAMBLE_PATTERN > 0).astype(np.uint8)
+    matched = int(np.count_nonzero(header[:PREAMBLE_BITS] == expected_preamble))
+    if matched < min_preamble_matches:
+        raise SignalNotFound(
+            f"преамбула не совпала при повторной проверке: "
+            f"{matched}/{PREAMBLE_BITS} (требуется {min_preamble_matches})"
+        )
 
     offset = PREAMBLE_BITS
     sync = int.from_bytes(bits_to_bytes(header[offset : offset + SYNC_BITS]), "big")
@@ -403,16 +429,30 @@ def bit_metric(samples: np.ndarray, profile: BfskProfile) -> np.ndarray:
     return mark_energy - space_energy
 
 
-def find_frame_start(metric: np.ndarray, profile: BfskProfile) -> FrameStart:
+def find_frame_start(
+    metric: np.ndarray,
+    profile: BfskProfile,
+    *,
+    min_preamble_matches: int = PREAMBLE_BITS,
+) -> FrameStart:
     """Найти преамбулу и уточнить начало кадра.
 
     Сначала для каждой фазы внутри символа проверяется корреляция знаков
     разностной энергии с шаблоном `1010…`. Затем начало уточняется по
     максимуму суммарного отклика на 32 символа преамбулы.
 
+    Args:
+        metric: разность энергий mark/space для каждого положения окна.
+        profile: BFSK-профиль.
+        min_preamble_matches: минимальное число совпавших бит преамбулы.
+            По умолчанию 32/32 — строгий файловый режим. Для реального
+            акустического канала допускается 28/32.
+
     Raises:
-        SignalNotFound: совпадение преамбулы меньше 32/32.
+        ReceiverError: порог вне диапазона 1..32.
+        SignalNotFound: совпадение преамбулы меньше `min_preamble_matches`.
     """
+    validate_min_preamble_matches(min_preamble_matches)
     symbols_per_bit = profile.samples_per_symbol
     span = PREAMBLE_BITS * symbols_per_bit
     if metric.size < span:
@@ -434,10 +474,11 @@ def find_frame_start(metric: np.ndarray, profile: BfskProfile) -> FrameStart:
             best_phase = phase
             best_index = index
 
-    if best_score < PREAMBLE_BITS:
-        matches = max(0, int(round(best_score)))
+    if best_score < 2 * min_preamble_matches - PREAMBLE_BITS:
+        matches = max(0, int(round((best_score + PREAMBLE_BITS) / 2.0)))
         raise SignalNotFound(
-            f"преамбула не найдена: лучшее совпадение {matches}/{PREAMBLE_BITS}"
+            f"преамбула не найдена: лучшее совпадение {matches}/{PREAMBLE_BITS} "
+            f"(требуется {min_preamble_matches})"
         )
 
     coarse = best_phase + best_index * symbols_per_bit
@@ -461,9 +502,10 @@ def find_frame_start(metric: np.ndarray, profile: BfskProfile) -> FrameStart:
             == (PREAMBLE_PATTERN > 0).astype(np.uint8)
         )
     )
-    if matches < PREAMBLE_BITS:
+    if matches < min_preamble_matches:
         raise SignalNotFound(
-            f"преамбула не подтверждена: {matches}/{PREAMBLE_BITS}"
+            f"преамбула не подтверждена: {matches}/{PREAMBLE_BITS} "
+            f"(требуется {min_preamble_matches})"
         )
 
     return FrameStart(
@@ -542,3 +584,12 @@ def _read_bits(
 
 def _hex16(value: int) -> str:
     return f"0x{value:04X}"
+
+
+def validate_min_preamble_matches(value: int) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ReceiverError("min_preamble_matches должен быть целым числом")
+    if not 1 <= value <= PREAMBLE_BITS:
+        raise ReceiverError(
+            f"min_preamble_matches должен быть в диапазоне 1..{PREAMBLE_BITS}"
+        )
