@@ -1,9 +1,9 @@
 # Текущий milestone — M0
 
-**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021, SN-013, SN-012 и код SN-014 (физическая калибровка — `PENDING`); технические критерии M0 покрыты, формальное закрытие — за Product Owner.  
+**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021, SN-013, SN-012, код SN-014 (физическая калибровка — `PENDING`) и код SN-015 (физический LAPTOP → PHONE — `PENDING`); технические критерии M0 покрыты, формальное закрытие — за Product Owner.  
 **Дата предложения:** 2026-11-01  
 **Автор:** Agent 1  
-**Связанные задачи:** SN-003, SN-005…SN-013, SN-020, SN-021  
+**Связанные задачи:** SN-003, SN-005…SN-015, SN-020, SN-021  
 **Основание:** `docs/audit/2026-11-01-repository-audit.md`, Architecture v1.0 §10 (недели 1–4), §14
 
 ## 0. Прогресс
@@ -21,6 +21,7 @@
 | SN-013 | DONE | `snlab/benchmark.py` + `benchmark.py`: 100 испытаний на точки 0/5/10/15/20 дБ, AWGN по мощности активной области, BER до CRC и с пропущенными битами, PER со всеми отказами, CSV/JSON/PNG/`M0-report.md`; 45 новых тестов (240 всего); M0-6 100/100 при 15 дБ |
 | SN-012 | DONE (код) | `snlab/calibration.py` + `calibrate.py`: тон-план, захват динамик→микрофон, уровень/SNR/смещение частоты/клиппинг, WAV+JSON+PNG; физический режим только с `--hardware-test`; реальный акустический PASS не заявляется |
 | SN-014 | IN_PROGRESS (код готов, физика PENDING) | `snlab/tones.py`, `snlab/analysis.py`, `snlab/response.py` + `tonegen.py`, `analyze.py`, `response.py`: безопасные файловые инструменты, полный прогон 400 passed; план физической калибровки — `docs/hardware-calibration/SN-014-TEST-PLAN.md`; измерения не выполнялись |
+| SN-015 | IN_PROGRESS (код готов, физика PENDING) | `desktop_app.py`, `snlab/desktop.py`, `snlab/playback.py`, `.bat`: FILE-ONLY GUI, ручной PLAY только с `--hardware-test`, импорт и анализ WAV Android; 39 новых тестов (439 passed), GUI smoke-test без звука; физическое воспроизведение и LAPTOP → PHONE не выполнялись — `docs/hardware-calibration/SN-015-LAPTOP-TO-PHONE.md` |
 
 ---
 
