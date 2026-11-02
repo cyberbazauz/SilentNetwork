@@ -29,6 +29,7 @@ import org.silentnetwork.app.audiolab.dsp.WavFileHandler
 import org.silentnetwork.app.audiolab.presentation.AudioLabState
 import org.silentnetwork.app.audiolab.reporting.CalibrationJsonReport
 import org.silentnetwork.app.databinding.FragmentAudioLabBinding
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -46,12 +47,21 @@ class AudioLabFragment : Fragment() {
 
     // Audio Engines: Real Android HAL engines instantiated on demand
     var playerEngine: AudioPlayerEngine = AndroidAudioPlayerEngine()
-    var recorderEngine: AudioRecorderEngine = AndroidAudioRecorderEngine()
+    var recorderEngine: AudioRecorderEngine = AndroidAudioRecorderEngine {
+        requireContext().applicationContext
+    }
 
-    // Cached files
+    // Cached files and SN-015 receiver session metadata
     private var lastGeneratedTxFile: File? = null
     private var lastCapturedRxFile: File? = null
     private var lastAnalysisResult: AudioAnalyzer.AnalysisResult? = null
+    private var lastCapturedWavInfo: CalibrationJsonReport.WavInfo? = null
+    private var lastExpectedFrequencyHz: Double? = null
+    private var lastReceiverRouteInfo: AndroidAudioRecorderEngine.RecorderRouteInfo? = null
+    private var lastAnalysisIsReceiverCapture: Boolean = false
+    private var lastAnalysisWavInfo: CalibrationJsonReport.WavInfo? = null
+    private var activeTestId: String? = null
+    private var receiverState: AudioLabState.ReceiverUiState = AudioLabState.ReceiverUiState.READY
 
     // Document Pickers & Permission Launchers
     private val requestRecordPermissionLauncher = registerForActivityResult(
@@ -59,8 +69,10 @@ class AudioLabFragment : Fragment() {
     ) { isGranted ->
         updateMicPermissionBadge(isGranted)
         if (isGranted) {
+            setReceiverState(AudioLabState.ReceiverUiState.READY)
             Toast.makeText(requireContext(), "Разрешение на микрофон предоставлено", Toast.LENGTH_SHORT).show()
         } else {
+            setReceiverState(AudioLabState.ReceiverUiState.PERMISSION_REQUIRED)
             Toast.makeText(requireContext(), "Для записи тестового сигнала требуется разрешение", Toast.LENGTH_LONG).show()
         }
     }
@@ -381,17 +393,39 @@ class AudioLabFragment : Fragment() {
     private fun setupReceiverSection() {
         val durLabels = AudioLabState.RECEIVER_DURATIONS_SEC.map { "$it сек" }
         binding.spinnerRxDuration.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, durLabels)
-        binding.spinnerRxDuration.setSelection(1) // Default: 5 sec
+        binding.spinnerRxDuration.setSelection(
+            AudioLabState.RECEIVER_DURATIONS_SEC.indexOf(AudioLabState.DEFAULT_RECEIVER_DURATION_SEC).coerceAtLeast(0)
+        )
 
         val srLabels = AudioLabState.SAMPLE_RATES_HZ.map { "$it Гц" }
         binding.spinnerRxSampleRate.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, srLabels)
         binding.spinnerRxSampleRate.setSelection(0) // Default: 48000 Hz
+
+        val expectedLabels = AudioLabState.RECEIVER_EXPECTED_FREQUENCIES_HZ.map { freq ->
+            if (freq == 1000.0) "1000 Гц (контроль)" else AudioLabState.formatFrequencyLabel(freq)
+        }
+        binding.spinnerRxExpectedFreq.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            expectedLabels
+        )
+        val defaultExpectedIndex = AudioLabState.RECEIVER_EXPECTED_FREQUENCIES_HZ
+            .indexOf(AudioLabState.DEFAULT_FREQUENCY_HZ)
+            .coerceAtLeast(0)
+        binding.spinnerRxExpectedFreq.setSelection(defaultExpectedIndex)
+
+        // Test ID is generated locally so the phone can work without any network.
+        // The user may replace it with the ID shown by Windows Acoustic Lab.
+        if (binding.etTestId.text.isNullOrBlank()) {
+            binding.etTestId.setText(AudioLabState.generateTestId())
+        }
 
         // Start Recording
         binding.btnStartRecord.setOnClickListener {
             if (hasRecordAudioPermission()) {
                 startAcousticRecording()
             } else {
+                setReceiverState(AudioLabState.ReceiverUiState.PERMISSION_REQUIRED)
                 requestRecordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         }
@@ -401,20 +435,74 @@ class AudioLabFragment : Fragment() {
             recorderEngine.stop()
             binding.btnStartRecord.isEnabled = true
             binding.btnStopRecord.isEnabled = false
-            binding.tvRxStatus.text = "Запись остановлена пользователем"
         }
 
         // Export RX WAV
         binding.btnExportRxWav.setOnClickListener {
-            createRxWavLauncher.launch("silentnetwork_capture_rx.wav")
+            createRxWavLauncher.launch(lastCapturedWavInfo?.filename ?: "sn015_rx_capture.wav")
         }
 
         // Send RX to Analyzer
         binding.btnSendRxToAnalyzer.setOnClickListener {
             lastCapturedRxFile?.let { file ->
-                analyzeWavFile(file, getSelectedTxFrequency())
+                analyzeWavFile(file, getSelectedReceiverFrequency())
             }
         }
+    }
+
+    private fun getSelectedReceiverFrequency(): Double {
+        val idx = binding.spinnerRxExpectedFreq.selectedItemPosition.coerceAtLeast(0)
+        return AudioLabState.RECEIVER_EXPECTED_FREQUENCIES_HZ[idx]
+    }
+
+    private fun setReceiverState(
+        state: AudioLabState.ReceiverUiState,
+        errorMessage: String? = null,
+        sampleCount: Int? = null
+    ) {
+        receiverState = state
+        if (_binding == null) return
+        binding.tvRxStatus.text = when (state) {
+            AudioLabState.ReceiverUiState.READY -> getString(R.string.audiolab_rec_state_idle)
+            AudioLabState.ReceiverUiState.PERMISSION_REQUIRED -> getString(R.string.audiolab_rec_state_permission)
+            AudioLabState.ReceiverUiState.RECORDING -> getString(R.string.audiolab_rec_state_recording, 0.0, 0)
+            AudioLabState.ReceiverUiState.RECORDING_COMPLETE ->
+                getString(R.string.audiolab_rec_state_completed, sampleCount ?: 0)
+            AudioLabState.ReceiverUiState.ANALYZED -> getString(R.string.audiolab_rec_state_analyzed)
+            AudioLabState.ReceiverUiState.ERROR -> getString(
+                R.string.audiolab_rec_state_error,
+                errorMessage ?: "unknown"
+            )
+        }
+    }
+
+    private fun updateRouteInfo(route: AndroidAudioRecorderEngine.RecorderRouteInfo?) {
+        if (_binding == null) return
+        if (route == null) {
+            binding.tvRxRouteInfo.text = getString(R.string.audiolab_route_info_placeholder)
+            return
+        }
+        binding.tvRxRouteInfo.text = getString(
+            R.string.audiolab_route_info,
+            "${route.requestedAudioSource}/${route.requestedDevice}",
+            route.actualRoutedDevice ?: getString(R.string.audiolab_route_unknown),
+            route.actualSampleRate
+        )
+    }
+
+    private fun resolveTestIdOrReportError(): String? {
+        val typed = binding.etTestId.text?.toString()?.trim().orEmpty()
+        val candidate = if (typed.isBlank()) AudioLabState.generateTestId() else typed.uppercase(Locale.US)
+        if (!AudioLabState.isValidTestId(candidate)) {
+            setReceiverState(
+                AudioLabState.ReceiverUiState.ERROR,
+                "неверный TEST ID, ожидается ${getString(R.string.audiolab_test_id_hint)}"
+            )
+            return null
+        }
+        binding.etTestId.setText(candidate)
+        activeTestId = candidate
+        return candidate
     }
 
     private fun hasRecordAudioPermission(): Boolean {
@@ -442,14 +530,33 @@ class AudioLabFragment : Fragment() {
     }
 
     private fun startAcousticRecording() {
+        val testId = resolveTestIdOrReportError() ?: return
+        val expectedFrequencyHz = getSelectedReceiverFrequency()
+
+        if (recorderEngine.isRecording) {
+            setReceiverState(AudioLabState.ReceiverUiState.ERROR, "запись уже идёт")
+            return
+        }
+
         val durIdx = binding.spinnerRxDuration.selectedItemPosition.coerceAtLeast(0)
         val durationSec = AudioLabState.RECEIVER_DURATIONS_SEC[durIdx]
 
         val srIdx = binding.spinnerRxSampleRate.selectedItemPosition.coerceAtLeast(0)
         val sampleRate = AudioLabState.SAMPLE_RATES_HZ[srIdx]
 
+        activeTestId = testId
+        lastExpectedFrequencyHz = expectedFrequencyHz
+        lastCapturedRxFile = null
+        lastCapturedWavInfo = null
+        lastAnalysisResult = null
+        lastReceiverRouteInfo = null
+        binding.btnExportRxWav.isEnabled = false
+        binding.btnSendRxToAnalyzer.isEnabled = false
+        binding.btnExportJsonReport.isEnabled = false
+
         binding.btnStartRecord.isEnabled = false
         binding.btnStopRecord.isEnabled = true
+        setReceiverState(AudioLabState.ReceiverUiState.RECORDING)
         binding.tvRxStatus.text = getString(R.string.audiolab_rec_state_recording, 0.0, durationSec)
 
         val result = recorderEngine.startRecording(
@@ -457,19 +564,23 @@ class AudioLabFragment : Fragment() {
             durationSeconds = durationSec,
             onProgress = { elapsed ->
                 mainHandler.post {
-                    _binding?.tvRxStatus?.text = getString(R.string.audiolab_rec_state_recording, elapsed, durationSec)
+                    _binding?.tvRxStatus?.text =
+                        getString(R.string.audiolab_rec_state_recording, elapsed, durationSec)
                 }
             },
             onComplete = { pcmData, actualRate ->
                 mainHandler.post {
-                    handleRecordingCompleted(pcmData, actualRate)
+                    handleRecordingCompleted(pcmData, actualRate, testId, expectedFrequencyHz)
                 }
             },
             onError = { error ->
                 mainHandler.post {
                     _binding?.btnStartRecord?.isEnabled = true
                     _binding?.btnStopRecord?.isEnabled = false
-                    _binding?.tvRxStatus?.text = "Ошибка записи: ${error.message}"
+                    setReceiverState(
+                        AudioLabState.ReceiverUiState.ERROR,
+                        error.message ?: error.javaClass.simpleName
+                    )
                 }
             }
         )
@@ -477,27 +588,59 @@ class AudioLabFragment : Fragment() {
         if (result.isFailure) {
             binding.btnStartRecord.isEnabled = true
             binding.btnStopRecord.isEnabled = false
-            binding.tvRxStatus.text = "Сбой запуска: ${result.exceptionOrNull()?.message}"
+            setReceiverState(
+                AudioLabState.ReceiverUiState.ERROR,
+                result.exceptionOrNull()?.message ?: "не удалось запустить AudioRecord"
+            )
+        } else {
+            val route = (recorderEngine as? AndroidAudioRecorderEngine)?.lastRouteInfo
+            lastReceiverRouteInfo = route
+            updateRouteInfo(route)
         }
     }
 
-    private fun handleRecordingCompleted(pcmData: ByteArray, actualRate: Int) {
+    private fun handleRecordingCompleted(
+        pcmData: ByteArray,
+        actualRate: Int,
+        testId: String,
+        expectedFrequencyHz: Double
+    ) {
         if (_binding == null) return
         binding.btnStartRecord.isEnabled = true
         binding.btnStopRecord.isEnabled = false
 
         val sampleCount = pcmData.size / 2
-        binding.tvRxStatus.text = getString(R.string.audiolab_rec_state_completed, sampleCount)
+        setReceiverState(AudioLabState.ReceiverUiState.RECORDING_COMPLETE, sampleCount = sampleCount)
+
+        if (pcmData.isEmpty()) {
+            setReceiverState(AudioLabState.ReceiverUiState.ERROR, "запись не содержит отсчётов")
+            return
+        }
 
         try {
-            val destFile = File(requireContext().cacheDir, "calibration_rx_capture.wav")
-            WavFileHandler.writePcm16Wav(destFile, pcmData, actualRate, 1)
+            val filename = "sn015_${testId.lowercase(Locale.US)}_rx.wav"
+            val destFile = File(requireContext().cacheDir, filename)
+            val wavBytes = WavFileHandler.encodePcm16Wav(pcmData, actualRate, 1)
+            destFile.writeBytes(wavBytes)
             lastCapturedRxFile = destFile
+            lastExpectedFrequencyHz = expectedFrequencyHz
+            lastCapturedWavInfo = CalibrationJsonReport.WavInfo(
+                filename = filename,
+                sha256 = WavFileHandler.sha256Hex(wavBytes),
+                sampleCount = sampleCount,
+                sampleRateHz = actualRate,
+                durationSeconds = sampleCount.toDouble() / actualRate.toDouble()
+            )
+            lastReceiverRouteInfo = (recorderEngine as? AndroidAudioRecorderEngine)?.lastRouteInfo
+            updateRouteInfo(lastReceiverRouteInfo)
             binding.btnExportRxWav.isEnabled = true
             binding.btnSendRxToAnalyzer.isEnabled = true
-            Toast.makeText(requireContext(), "Аудио записано и сохранено в WAV", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Аудио записано в WAV. Приём ещё не подтверждён.", Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
-            binding.tvRxStatus.text = "Ошибка сохранения WAV: ${t.message}"
+            setReceiverState(
+                AudioLabState.ReceiverUiState.ERROR,
+                "ошибка сохранения WAV: ${t.message}"
+            )
         }
     }
 
@@ -511,7 +654,10 @@ class AudioLabFragment : Fragment() {
         }
 
         binding.btnExportJsonReport.setOnClickListener {
-            createJsonReportLauncher.launch("silentnetwork_calibration_report.json")
+            val id = activeTestId
+                ?: binding.etTestId.text?.toString()?.trim()?.takeIf { AudioLabState.isValidTestId(it) }
+                ?: AudioLabState.generateTestId()
+            createJsonReportLauncher.launch("sn015_${id.lowercase(Locale.US)}_result.json")
         }
     }
 
@@ -522,31 +668,70 @@ class AudioLabFragment : Fragment() {
 
     private fun analyzeWavFile(file: File, targetFrequencyHz: Double?) {
         try {
-            val decoded = WavFileHandler.decodePcm16Wav(file)
+            val wavBytes = file.readBytes()
+            val decoded = WavFileHandler.decodePcm16Wav(ByteArrayInputStream(wavBytes))
+            val isReceiverCapture = file == lastCapturedRxFile
             val result = AudioAnalyzer.analyze(
                 samples = decoded.samples,
                 sampleRate = decoded.metadata.sampleRate,
                 channels = decoded.metadata.channels,
                 targetToneFrequencyHz = targetFrequencyHz
             )
+            lastAnalysisIsReceiverCapture = isReceiverCapture
+            lastAnalysisWavInfo = if (isReceiverCapture) {
+                lastCapturedWavInfo ?: CalibrationJsonReport.WavInfo(
+                    filename = file.name,
+                    sha256 = WavFileHandler.sha256Hex(wavBytes),
+                    sampleCount = decoded.metadata.sampleCount,
+                    sampleRateHz = decoded.metadata.sampleRate,
+                    durationSeconds = decoded.metadata.durationSeconds
+                )
+            } else {
+                CalibrationJsonReport.WavInfo(
+                    filename = file.name,
+                    sha256 = WavFileHandler.sha256Hex(wavBytes),
+                    sampleCount = decoded.metadata.sampleCount,
+                    sampleRateHz = decoded.metadata.sampleRate,
+                    durationSeconds = decoded.metadata.durationSeconds
+                )
+            }
+            if (!isReceiverCapture) {
+                lastExpectedFrequencyHz = targetFrequencyHz
+            }
             renderAnalysisResult(result, file.name)
+            setReceiverState(AudioLabState.ReceiverUiState.ANALYZED)
         } catch (t: Throwable) {
+            setReceiverState(
+                AudioLabState.ReceiverUiState.ERROR,
+                "ошибка анализа WAV: ${t.message}"
+            )
             Toast.makeText(requireContext(), "Ошибка анализа WAV: ${t.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun importAndAnalyzeWav(uri: Uri) {
         try {
-            val inputStream = requireContext().contentResolver.openInputStream(uri)
-                ?: throw IllegalStateException("Не удалось открыть файл")
-            val decoded = inputStream.use { WavFileHandler.decodePcm16Wav(it) }
+            val wavBytes = requireContext().contentResolver.openInputStream(uri)?.use { input ->
+                input.readBytes()
+            } ?: throw IllegalStateException("Не удалось открыть файл")
 
+            val decoded = WavFileHandler.decodePcm16Wav(ByteArrayInputStream(wavBytes))
             val result = AudioAnalyzer.analyze(
                 samples = decoded.samples,
                 sampleRate = decoded.metadata.sampleRate,
                 channels = decoded.metadata.channels
             )
+            lastAnalysisIsReceiverCapture = false
+            lastExpectedFrequencyHz = null
+            lastAnalysisWavInfo = CalibrationJsonReport.WavInfo(
+                filename = uri.lastPathSegment?.substringAfterLast('/') ?: "imported.wav",
+                sha256 = WavFileHandler.sha256Hex(wavBytes),
+                sampleCount = decoded.metadata.sampleCount,
+                sampleRateHz = decoded.metadata.sampleRate,
+                durationSeconds = decoded.metadata.durationSeconds
+            )
             renderAnalysisResult(result, "Импортированный WAV")
+            setReceiverState(AudioLabState.ReceiverUiState.ANALYZED)
             Toast.makeText(requireContext(), "WAV успешно проанализирован", Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
             Toast.makeText(requireContext(), "Ошибка импорта: ${t.message}", Toast.LENGTH_LONG).show()
@@ -584,6 +769,12 @@ class AudioLabFragment : Fragment() {
             "Доминирующая частота: %.0f Гц (%.1f dBFS)",
             result.dominantFrequencyHz,
             result.dominantPeakDbfs
+        )
+
+        val expected = result.expectedFrequencyHz ?: lastExpectedFrequencyHz
+        binding.tvMetricFrequencyError.text = AudioLabState.formatFrequencyError(
+            expected,
+            result.detectedFrequencyHz
         )
 
         binding.tvMetricBandPower.text = String.format(
@@ -634,25 +825,36 @@ class AudioLabFragment : Fragment() {
         )
 
         val fx = AudioEffectsInspector.inspectEffects()
+        val route = lastReceiverRouteInfo
+        val requestedSampleRate = route?.requestedSampleRate ?: analysis.sampleRate
+        val actualSampleRate = route?.actualSampleRate ?: analysis.sampleRate
         val hw = CalibrationJsonReport.AudioHardwareState(
-            requestedSampleRate = analysis.sampleRate,
-            actualSampleRate = analysis.sampleRate,
+            requestedSampleRate = requestedSampleRate,
+            actualSampleRate = actualSampleRate,
             channelCount = analysis.channels,
             audioFormat = "PCM 16-bit mono",
-            audioSource = "UNPROCESSED",
-            bufferSizeBytes = analysis.sampleCount * 2,
+            audioSource = route?.actualAudioSource ?: "UNKNOWN",
+            bufferSizeBytes = route?.bufferSizeBytes ?: (analysis.sampleCount * 2),
             aecAvailable = fx.aecAvailable,
             agcAvailable = fx.agcAvailable,
             nsAvailable = fx.nsAvailable,
-            effectsStateDescription = fx.description
+            effectsStateDescription = fx.description,
+            requestedDevice = route?.requestedDevice ?: "builtin_mic",
+            actualRoutedDevice = route?.actualRoutedDevice
         )
 
+        val targetFrequencyHz = if (lastAnalysisIsReceiverCapture) {
+            lastExpectedFrequencyHz
+        } else {
+            null
+        }
+
         val tp = CalibrationJsonReport.TestParameters(
-            testType = if (lastCapturedRxFile != null) "RECEIVER_CAPTURE" else "WAV_ANALYSIS",
-            transmitterFrequencyHz = getSelectedTxFrequency(),
-            transmitterAmplitude = getSelectedTxAmplitude(),
-            transmitterDurationSeconds = getSelectedTxDuration().toDouble(),
-            targetFrequencyHz = getSelectedTxFrequency()
+            testType = if (lastAnalysisIsReceiverCapture) "RECEIVER_CAPTURE" else "WAV_ANALYSIS",
+            transmitterFrequencyHz = null,
+            transmitterAmplitude = null,
+            transmitterDurationSeconds = null,
+            targetFrequencyHz = targetFrequencyHz
         )
 
         val warnings = mutableListOf<String>()
@@ -662,12 +864,33 @@ class AudioLabFragment : Fragment() {
         if (analysis.rmsDbfs < -60.0) {
             warnings.add("Низкий уровень сигнала (${String.format(Locale.US, "%.1f", analysis.rmsDbfs)} dBFS) — сигнал едва различим над шумом")
         }
+        if (targetFrequencyHz != null && analysis.detectedFrequencyHz == null) {
+            warnings.add("Ожидаемый тон не обнаружен в пределах ±300 Гц — приём не подтверждён")
+        }
+        if (actualSampleRate != requestedSampleRate) {
+            warnings.add("Фактическая частота дискретизации $actualSampleRate Гц отличается от запрошенной $requestedSampleRate Гц")
+        }
+        if (route?.actualRoutedDevice != null && !route.actualRoutedDevice.startsWith("builtin_mic")) {
+            warnings.add("Запись выполнена не встроенным микрофоном: ${route.actualRoutedDevice}")
+        }
+
+        val testId = activeTestId ?: binding.etTestId.text?.toString()?.trim()?.takeIf {
+            AudioLabState.isValidTestId(it)
+        } ?: AudioLabState.generateTestId()
+        val resultMetadata = CalibrationJsonReport.ResultMetadata(
+            testId = testId,
+            deviceRole = if (lastAnalysisIsReceiverCapture) "android_receiver" else "android_analyzer"
+        )
 
         val json = CalibrationJsonReport.buildReport(
             device = dev,
             hardware = hw,
             testParams = tp,
             analysis = analysis,
+            result = resultMetadata,
+            wavInfo = lastAnalysisWavInfo,
+            expectedFrequencyHz = targetFrequencyHz,
+            detectedFrequencyHz = analysis.detectedFrequencyHz,
             warnings = warnings
         )
 

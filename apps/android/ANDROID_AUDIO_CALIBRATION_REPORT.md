@@ -6,6 +6,11 @@
 **Область изменений:** строго внутри `apps/android/`  
 **Ветка:** `gemini/android-audio-calibration`  
 
+> [!NOTE]
+> Раздел 9 добавлен по задаче **SN-015**: Android Audio Lab Receiver,
+> совместимость WAV/JSON с Windows Desktop Lab и статус физического теста.
+> Разделы 1–8 сохранены как исторический отчёт SN-014.
+
 ---
 
 ## 1. Цель и контекст этапа
@@ -197,3 +202,119 @@
 
 - **ANDROID AUDIO LAB CODE — DONE** (Кодовая база калибровочной лаборатории полностью реализована, протестирована и собрана в APK).
 - **PHYSICAL AUDIO TESTING — PENDING** (Физические испытания излучателя и приёмника запланированы на завтра в соответствии с планом испытаний).
+
+---
+
+## 9. Обновление SN-015: Android Receiver и совместимость WAV/JSON
+
+**Дата:** 2026-11-02  
+**Базовая точка:** `68b6029`  
+**Ветка Android-изменений:** `agent1/sn015-android`  
+**Windows Desktop Lab:** commit `f497f66`  
+**Физические аудиотесты:** не выполнялись.
+
+### 9.1. Что изменено
+
+- **Receiver:** запись только по кнопке; запрашивается `TYPE_BUILTIN_MIC`,
+  фиксируются запрошенный и фактический маршрут (`requested_device`,
+  `actual_routed_device`), фактический sample rate и число каналов.
+  `AudioRecord` освобождается при остановке, `onPause` и `onDestroyView`.
+- **Test ID:** формат `SN015-YYYYMMDDTHHMMSSZ-XXXXXXXX`; генерируется на
+  телефоне или вводится с Windows.
+- **Ожидаемая частота:** выбирается из общего списка; анализатор ищет пик в
+  окне ±300 Гц с порогом 6 дБ над медианой и вычисляет
+  `frequency_error_hz = detected - expected`.
+- **Состояния:** `READY`, `PERMISSION_REQUIRED`, `RECORDING`,
+  `RECORDING_COMPLETE`, `ANALYZED`, `ERROR`. После записи показывается
+  `RECORDING COMPLETE`, успешный приём не заявляется до анализа.
+- **WAV:** RIFF/WAVE, PCM16 LE, mono; имя `sn015_<test_id>_rx.wav`;
+  нормализация `/32768.0f`, как в `snlab/wavio.py`; SHA-256 сырых байт файла.
+- **JSON:** обязательные top-level поля контракта
+  `docs/hardware-calibration/SN-015-RESULT-FORMAT.md`; старые вложенные
+  структуры (`device`, `hardware`, `test_parameters`, `analysis`, `wav`)
+  сохранены. Имя `sn015_<test_id>_result.json`.
+- Изменённые файлы: `AudioLabFragment.kt`, `AndroidAudioRecorderEngine.kt`,
+  `AudioRouteInfo.kt` (новый), `AudioLabState.kt`, `CalibrationJsonReport.kt`,
+  `AudioAnalyzer.kt`, `WavFileHandler.kt`, `fragment_audio_lab.xml`,
+  `strings.xml`; тесты `CalibrationJsonReportTest`, `Sn015ContractTest`,
+  `AudioAnalyzerTest`, `WavFileHandlerTest`.
+
+### 9.2. Автоматизированные тесты
+
+Команда: `.\gradlew.bat test --no-daemon`
+
+- `BUILD SUCCESSFUL in 33s`
+- Debug: **56 тестов**, failures `0`, errors `0`.
+- Release: **56 тестов**, failures `0`, errors `0`.
+- Всего: **112**, failures `0`, errors `0`.
+
+Покрыто: контракт JSON (обязательные поля и типы), формат `test_id`,
+`expected`/`detected`/`frequency_error_hz`, PCM16 и кратность фрейма,
+sample rate, clipping, отсутствие PII в отчёте, lifecycle `AudioRecord`,
+отсутствие автоматической записи, WAV/SHA-256.
+
+### 9.3. Совместимость WAV с Python Acoustic Lab
+
+Синтетический WAV, созданный Android unit-тестом, прочитан строгим
+`acoustic-lab/snlab/wavio.py::read_pcm16`:
+
+```text
+sample_rate=48000
+samples=48000
+duration=1.000000
+peak=0.250000
+dominant_hz=18500.000
+sha256=468a59852ff364c082fc03380e2d60359221c2f2b51e953d1573c5781110cf04
+PYTHON_WAV_READ_OK
+```
+
+Размер файла — `96 044` байта. Проверка не открывала аудиоустройства.
+
+### 9.4. Совместимость JSON с контрактом
+
+Синтетический Android JSON проверен Python-скриптом:
+
+```text
+schema_version=silentnetwork.sn015.result/1.0
+test_id=SN015-20261102T120000Z-A1B2C3D4
+device_role=android_receiver
+expected_hz=18500
+detected_hz=18499.819
+frequency_error_hz=-0.181
+wav_sha256=468a59852ff364c082fc03380e2d60359221c2f2b51e953d1573c5781110cf04
+samples=48000
+PYTHON_JSON_CONTRACT_OK
+```
+
+Все обязательные поля присутствуют и имеют верные типы; `wav_sha256`
+совпадает с фактическим WAV; `frequency_error_hz` согласован с
+`detected - expected`. Windows Desktop Lab пока не импортирует Android JSON в
+GUI — это зафиксировано как будущая доработка.
+
+### 9.5. Сборка APK
+
+Команда: `.\gradlew.bat assembleDebug --no-daemon`
+
+- **Статус:** `BUILD SUCCESSFUL in 31s`
+- **Путь:** `apps/android/app/build/outputs/apk/debug/app-debug.apk`
+- **Размер:** `3 392 577` байт (~3.24 МБ)
+
+### 9.6. Что не проверялось
+
+- `AudioRecord.startRecording()` на физическом телефоне не запускался.
+- `AudioTrack.play()` и воспроизведение через динамик не запускались.
+- Реальный акустический тест `LAPTOP → PHONE` не выполнялся.
+- Windows-импорт Android JSON не автоматизирован.
+
+### 9.7. Статусы SN-015
+
+| Компонент | Статус |
+|---|---|
+| `SN-015 WINDOWS DESKTOP` | **DONE** |
+| `SN-015 ANDROID RECEIVER` | **DONE** (код и синтетические тесты) |
+| `SN-015 WAV COMPATIBILITY` | **DONE** |
+| `SN-015 JSON COMPATIBILITY` | **DONE** |
+| `PHYSICAL LAPTOP → PHONE` | **PENDING** |
+
+`DONE` относится к коду и форматам файлов, а не к подтверждённому приёму звука
+на конкретном устройстве.

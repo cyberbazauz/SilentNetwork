@@ -2,6 +2,7 @@ package org.silentnetwork.app.audiolab
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.silentnetwork.app.audiolab.dsp.AudioAnalyzer
@@ -111,5 +112,71 @@ class AudioAnalyzerTest {
         val result = AudioAnalyzer.analyze(samples, 48000, 1)
 
         assertTrue(result.snrDisclaimer.contains("SNR не рассчитывается"))
+    }
+
+    @Test
+    fun testExpectedToneIsDetectedWithSmallFrequencyError() {
+        val sampleRate = 48000
+        val expected = 18500.0
+        val samples = SignalGenerator.generateSineWave(
+            frequencyHz = expected,
+            durationSeconds = 0.5,
+            sampleRate = sampleRate,
+            amplitude = 0.25,
+            leadInPauseSeconds = 0.0,
+            leadOutPauseSeconds = 0.0
+        )
+
+        val result = AudioAnalyzer.analyze(samples, sampleRate, 1, targetToneFrequencyHz = expected)
+
+        assertEquals(expected, result.expectedFrequencyHz!!, 0.1)
+        assertTrue("Expected tone must be detected", result.detectedFrequencyHz != null)
+        assertTrue("Detected tone must be close to expected", abs(result.detectedFrequencyHz!! - expected) < 30.0)
+        assertEquals(
+            result.detectedFrequencyHz!! - expected,
+            result.frequencyErrorHz!!,
+            1e-9
+        )
+        assertTrue("Detection margin must clear the 6 dB threshold", (result.detectionMarginDb ?: 0.0) >= 6.0)
+    }
+
+    @Test
+    fun testDifferentToneIsNotReportedAsExpectedTone() {
+        val sampleRate = 48000
+        val samples = SignalGenerator.generateSineWave(
+            frequencyHz = 1000.0,
+            durationSeconds = 0.5,
+            sampleRate = sampleRate,
+            amplitude = 0.25,
+            leadInPauseSeconds = 0.0,
+            leadOutPauseSeconds = 0.0
+        )
+
+        val result = AudioAnalyzer.analyze(samples, sampleRate, 1, targetToneFrequencyHz = 18500.0)
+
+        // The dominant peak is 1 kHz, far outside the ±300 Hz search window.
+        assertEquals(1000.0, result.dominantFrequencyHz, 30.0)
+        assertNull(result.detectedFrequencyHz)
+        assertNull(result.frequencyErrorHz)
+    }
+
+    @Test
+    fun testSampleRateAndDurationComeFromMetadata() {
+        val sampleRate = 44100
+        val samples = SignalGenerator.generateSineWave(
+            frequencyHz = 1000.0,
+            durationSeconds = 0.25,
+            sampleRate = sampleRate,
+            amplitude = 0.2,
+            leadInPauseSeconds = 0.0,
+            leadOutPauseSeconds = 0.0
+        )
+
+        val result = AudioAnalyzer.analyze(samples, sampleRate, 1)
+
+        assertEquals(sampleRate, result.sampleRate)
+        assertEquals(1, result.channels)
+        assertEquals(samples.size, result.sampleCount)
+        assertEquals(samples.size.toDouble() / sampleRate.toDouble(), result.durationSeconds, 1e-9)
     }
 }

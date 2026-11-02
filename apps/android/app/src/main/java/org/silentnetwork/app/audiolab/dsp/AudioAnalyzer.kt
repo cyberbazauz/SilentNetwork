@@ -38,6 +38,10 @@ object AudioAnalyzer {
         val dcOffset: Double,
         val dominantFrequencyHz: Double,
         val dominantPeakDbfs: Double,
+        val expectedFrequencyHz: Double?,
+        val detectedFrequencyHz: Double?,
+        val frequencyErrorHz: Double?,
+        val detectionMarginDb: Double?,
         val topSpectralPeaks: List<SpectralPeak>,
         val band18to19kHzPowerFraction: Double,
         val spectrumBinsHz: List<Double>,
@@ -86,7 +90,8 @@ object AudioAnalyzer {
         val peakDbfs = toDbfs(peakAbs)
 
         // Perform spectral estimation via FFT / Goertzel
-        val (dominantFreq, dominantDbfs, topPeaks, spectrumBins, spectrumPower, band1819Fraction) =
+        val (dominantFreq, dominantDbfs, expectedFreq, detectedFreq, detectionMargin,
+            topPeaks, spectrumBins, spectrumPower, band1819Fraction) =
             computeSpectrum(samples, sampleRate, targetToneFrequencyHz)
 
         val disclaimer = "SNR не рассчитывается: для одиночной записи без эталонного сигнала " +
@@ -106,6 +111,14 @@ object AudioAnalyzer {
             dcOffset = dcOffset,
             dominantFrequencyHz = dominantFreq,
             dominantPeakDbfs = dominantDbfs,
+            expectedFrequencyHz = expectedFreq,
+            detectedFrequencyHz = detectedFreq,
+            frequencyErrorHz = if (expectedFreq != null && detectedFreq != null) {
+                detectedFreq - expectedFreq
+            } else {
+                null
+            },
+            detectionMarginDb = detectionMargin,
             topSpectralPeaks = topPeaks,
             band18to19kHzPowerFraction = band1819Fraction,
             spectrumBinsHz = spectrumBins,
@@ -260,9 +273,19 @@ object AudioAnalyzer {
 
         val band1819Fraction = if (totalPower > 0.0) (band1819Power / totalPower) else 0.0
 
+        val (detectedFreq, detectionMargin) = findPeakNear(
+            magnitudes = magnitudes,
+            binWidthHz = binWidthHz,
+            halfSize = halfSize,
+            targetToneFrequencyHz = targetToneFrequencyHz
+        )
+
         return SpectrumData(
             dominantFrequencyHz = dominantFreq,
             dominantPeakDbfs = dominantPeakDbfs,
+            expectedFrequencyHz = targetToneFrequencyHz,
+            detectedFrequencyHz = detectedFreq,
+            detectionMarginDb = detectionMargin,
             topPeaks = peaks,
             spectrumBinsHz = displayFreqs,
             spectrumBinsPowerDbfs = displayPowers,
@@ -294,6 +317,10 @@ object AudioAnalyzer {
             dcOffset = 0.0,
             dominantFrequencyHz = 0.0,
             dominantPeakDbfs = SILENCE_DBFS_FLOOR,
+            expectedFrequencyHz = null,
+            detectedFrequencyHz = null,
+            frequencyErrorHz = null,
+            detectionMarginDb = null,
             topSpectralPeaks = emptyList(),
             band18to19kHzPowerFraction = 0.0,
             spectrumBinsHz = emptyList(),
@@ -351,9 +378,57 @@ object AudioAnalyzer {
     private data class SpectrumData(
         val dominantFrequencyHz: Double,
         val dominantPeakDbfs: Double,
+        val expectedFrequencyHz: Double?,
+        val detectedFrequencyHz: Double?,
+        val detectionMarginDb: Double?,
         val topPeaks: List<SpectralPeak>,
         val spectrumBinsHz: List<Double>,
         val spectrumBinsPowerDbfs: List<Double>,
         val band1819Fraction: Double
     )
+
+    /**
+     * Finds a significant tone within ±300 Hz of the expected frequency and
+     * refines its position with parabolic interpolation. Returns null when the
+     * window has no peak with enough margin over its median, so noise is not
+     * reported as a received tone.
+     */
+    private fun findPeakNear(
+        magnitudes: DoubleArray,
+        binWidthHz: Double,
+        halfSize: Int,
+        targetToneFrequencyHz: Double?
+    ): Pair<Double?, Double?> {
+        if (targetToneFrequencyHz == null || binWidthHz <= 0.0 || halfSize < 3) {
+            return null to null
+        }
+        val searchHz = 300.0
+        val lowBin = ((targetToneFrequencyHz - searchHz) / binWidthHz)
+            .toInt().coerceAtLeast(1)
+        val highBin = ((targetToneFrequencyHz + searchHz) / binWidthHz)
+            .toInt().coerceAtMost(halfSize - 2)
+        if (highBin < lowBin) return null to null
+
+        var peakBin = lowBin
+        for (bin in lowBin..highBin) {
+            if (magnitudes[bin] > magnitudes[peakBin]) peakBin = bin
+        }
+        val windowDb = (lowBin..highBin).map { toDbfs(magnitudes[it]) }.sorted()
+        val medianDb = windowDb[windowDb.size / 2]
+        val marginDb = toDbfs(magnitudes[peakBin]) - medianDb
+        if (marginDb < 6.0) return null to marginDb
+
+        var frequency = peakBin * binWidthHz
+        if (peakBin in 1 until halfSize - 1) {
+            val left = toDbfs(magnitudes[peakBin - 1])
+            val center = toDbfs(magnitudes[peakBin])
+            val right = toDbfs(magnitudes[peakBin + 1])
+            val denominator = left - 2.0 * center + right
+            if (abs(denominator) > 1e-18) {
+                val delta = (0.5 * (left - right) / denominator).coerceIn(-0.5, 0.5)
+                frequency += delta * binWidthHz
+            }
+        }
+        return frequency to marginDb
+    }
 }

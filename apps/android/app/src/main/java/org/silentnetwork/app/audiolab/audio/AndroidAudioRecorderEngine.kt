@@ -1,7 +1,10 @@
 package org.silentnetwork.app.audiolab.audio
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import java.io.ByteArrayOutputStream
@@ -15,8 +18,26 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 2. It is ONLY instantiated and started upon explicit user button tap.
  * 3. Never runs hidden background captures.
  * 4. Strictly releases hardware microphone upon stop or fragment destruction.
+ * 5. Prefers TYPE_BUILTIN_MIC, but reports the actual routed device instead of
+ *    pretending that the preference was honoured.
+ *
+ * @param contextProvider lazy context accessor. It is invoked only when a
+ *   capture actually starts, so constructing the engine never touches Android
+ *   framework services and remains safe for JVM unit tests.
  */
-class AndroidAudioRecorderEngine : AudioRecorderEngine {
+class AndroidAudioRecorderEngine(
+    private val contextProvider: (() -> Context)? = null
+) : AudioRecorderEngine {
+
+    data class RecorderRouteInfo(
+        val requestedAudioSource: String,
+        val actualAudioSource: String,
+        val requestedSampleRate: Int,
+        val actualSampleRate: Int,
+        val requestedDevice: String,
+        val actualRoutedDevice: String?,
+        val bufferSizeBytes: Int
+    )
 
     @Volatile
     private var audioRecord: AudioRecord? = null
@@ -25,6 +46,10 @@ class AndroidAudioRecorderEngine : AudioRecorderEngine {
     override val isRecording: Boolean get() = _isRecording.get()
 
     private var recordThread: Thread? = null
+
+    @Volatile
+    var lastRouteInfo: RecorderRouteInfo? = null
+        private set
 
     var selectedAudioSource: Int = MediaRecorder.AudioSource.UNPROCESSED
         private set
@@ -53,6 +78,21 @@ class AndroidAudioRecorderEngine : AudioRecorderEngine {
 
         val ratesToTry = if (sampleRate == 48000) listOf(48000, 44100) else listOf(sampleRate, 48000)
 
+        val builtinMic = try {
+            val context = contextProvider?.invoke()
+            val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.getDevices(AudioManager.GET_DEVICES_INPUTS)?.firstOrNull {
+                it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC
+            }
+        } catch (_: Throwable) {
+            null
+        }
+        val requestedDevice = if (builtinMic != null) {
+            AudioRouteInfo.REQUESTED_BUILTIN_MIC
+        } else {
+            "default_input"
+        }
+
         var recordInstance: AudioRecord? = null
         var chosenSource = MediaRecorder.AudioSource.MIC
         var chosenRate = sampleRate
@@ -76,6 +116,15 @@ class AndroidAudioRecorderEngine : AudioRecorderEngine {
                             bufSize
                         )
                         if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                            // Request the built-in microphone. This is only a
+                            // preference: the OS may route to another device.
+                            if (builtinMic != null) {
+                                try {
+                                    candidate.setPreferredDevice(builtinMic)
+                                } catch (_: Throwable) {
+                                    // Route preference is best-effort.
+                                }
+                            }
                             recordInstance = candidate
                             chosenSource = source
                             chosenRate = rate
@@ -101,6 +150,17 @@ class AndroidAudioRecorderEngine : AudioRecorderEngine {
         audioRecord = recordInstance
         selectedAudioSource = chosenSource
         actualSampleRate = chosenRate
+        val requestedAudioSource = AudioRouteInfo.sourceName(sourcesToTry.first())
+        val actualAudioSource = AudioRouteInfo.sourceName(chosenSource)
+        lastRouteInfo = RecorderRouteInfo(
+            requestedAudioSource = requestedAudioSource,
+            actualAudioSource = actualAudioSource,
+            requestedSampleRate = sampleRate,
+            actualSampleRate = chosenRate,
+            requestedDevice = requestedDevice,
+            actualRoutedDevice = null,
+            bufferSizeBytes = bufferSizeBytes
+        )
         _isRecording.set(true)
 
         val totalTargetSamples = chosenRate * durationSeconds
@@ -113,6 +173,23 @@ class AndroidAudioRecorderEngine : AudioRecorderEngine {
 
             try {
                 recordInstance.startRecording()
+
+                val routed = try {
+                    recordInstance.routedDevice
+                } catch (_: Throwable) {
+                    null
+                }
+                lastRouteInfo = RecorderRouteInfo(
+                    requestedAudioSource = requestedAudioSource,
+                    actualAudioSource = actualAudioSource,
+                    requestedSampleRate = sampleRate,
+                    actualSampleRate = chosenRate,
+                    requestedDevice = requestedDevice,
+                    actualRoutedDevice = routed?.let {
+                        AudioRouteInfo.describeDevice(it.type, it.productName?.toString())
+                    },
+                    bufferSizeBytes = bufferSizeBytes
+                )
 
                 while (_isRecording.get() && totalReadBytes < totalTargetBytes) {
                     val toRead = minOf(chunk.size, totalTargetBytes - totalReadBytes)

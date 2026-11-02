@@ -2,6 +2,7 @@ package org.silentnetwork.app.audiolab
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.silentnetwork.app.audiolab.dsp.SignalGenerator
@@ -47,6 +48,99 @@ class WavFileHandlerTest {
     }
 
     @Test
+    fun testWavHeaderFieldsMatchPcm16MonoContract() {
+        val sampleRate = 44100
+        val sampleCount = 44100
+        val pcm = ByteArray(sampleCount * 2)
+        val wav = WavFileHandler.encodePcm16Wav(pcm, sampleRate, channels = 1)
+        val buffer = java.nio.ByteBuffer.wrap(wav).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+        assertEquals("RIFF", String(wav, 0, 4, Charsets.US_ASCII))
+        assertEquals(36 + pcm.size, buffer.getInt(4))
+        assertEquals("WAVE", String(wav, 8, 4, Charsets.US_ASCII))
+        assertEquals("fmt ", String(wav, 12, 4, Charsets.US_ASCII))
+        assertEquals(16, buffer.getInt(16)) // PCM fmt chunk size
+        assertEquals(1, buffer.getShort(20).toInt()) // PCM format
+        assertEquals(1, buffer.getShort(22).toInt()) // mono
+        assertEquals(sampleRate, buffer.getInt(24))
+        assertEquals(sampleRate * 2, buffer.getInt(28)) // byte rate
+        assertEquals(2, buffer.getShort(32).toInt()) // block align
+        assertEquals(16, buffer.getShort(34).toInt()) // bits per sample
+        assertEquals("data", String(wav, 36, 4, Charsets.US_ASCII))
+        assertEquals(pcm.size, buffer.getInt(40))
+
+        val decoded = WavFileHandler.decodePcm16Wav(ByteArrayInputStream(wav))
+        assertEquals(sampleRate, decoded.metadata.sampleRate)
+        assertEquals(sampleCount, decoded.metadata.sampleCount)
+        assertEquals(1.0, decoded.metadata.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun testPcm16FullScaleUses32768Divisor() {
+        val min = java.nio.ByteBuffer.allocate(4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putShort(Short.MIN_VALUE)
+            .putShort(Short.MAX_VALUE)
+            .array()
+        val wav = WavFileHandler.encodePcm16Wav(min, 48000, 1)
+        val decoded = WavFileHandler.decodePcm16Wav(ByteArrayInputStream(wav))
+
+        assertEquals(-1.0f, decoded.samples[0], 0f)
+        assertEquals(32767.0f / 32768.0f, decoded.samples[1], 1e-6f)
+    }
+
+    @Test
+    fun testSha256MatchesRawFileBytesAndIsDeterministic() {
+        val pcm = ByteArray(400) { (it % 251).toByte() }
+        val wav = WavFileHandler.encodePcm16Wav(pcm, 48000, 1)
+        val first = WavFileHandler.sha256Hex(wav)
+        val second = WavFileHandler.sha256Hex(wav)
+
+        assertEquals(64, first.length)
+        assertEquals(first, second)
+        val expected = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(wav)
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expected, first)
+    }
+
+    @Test
+    fun testEncodeRejectsIncompletePcm16Frame() {
+        try {
+            WavFileHandler.encodePcm16Wav(ByteArray(3), 48000, 1)
+            fail("Expected IllegalArgumentException for an odd PCM16 payload")
+        } catch (_: IllegalArgumentException) {
+            // Success
+        }
+    }
+
+    /**
+     * Writes a real WAV produced by Android code so the Python Acoustic Lab
+     * reader (snlab/wavio.py) can be run against the exact same bytes.
+     */
+    @Test
+    fun testExportAndroidWavForPythonCompatibility() {
+        val sampleRate = 48000
+        val samples = SignalGenerator.generateSineWave(
+            frequencyHz = 18500.0,
+            durationSeconds = 1.0,
+            sampleRate = sampleRate,
+            amplitude = 0.25,
+            leadInPauseSeconds = 0.0,
+            leadOutPauseSeconds = 0.0
+        )
+        val pcm = SignalGenerator.toPcm16LittleEndian(samples)
+        val wav = WavFileHandler.encodePcm16Wav(pcm, sampleRate, 1)
+
+        val output = java.io.File("build/sn015-android-wav/sn015_android_rx.wav")
+        output.parentFile?.mkdirs()
+        output.writeBytes(wav)
+
+        assertTrue(output.length() > 44)
+        assertEquals((44 + pcm.size).toLong(), output.length())
+    }
+
+    @Test
     fun testWavRoundtripEncodeDecode() {
         val originalFloats = SignalGenerator.generateSineWave(
             frequencyHz = 18500.0,
@@ -67,7 +161,7 @@ class WavFileHandlerTest {
         assertEquals(originalFloats.size, decoded.samples.size)
 
         for (i in originalFloats.indices) {
-            assertEquals("Sample $i mismatch", originalFloats[i], decoded.samples[i], 0.001f)
+            assertEquals("Sample $i mismatch", originalFloats[i], decoded.samples[i], 0.0011f)
         }
     }
 

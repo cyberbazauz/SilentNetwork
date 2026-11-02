@@ -18,8 +18,8 @@
     <string name="tag_no_radio">100% ACOUSTIC TRANSPORT</string>
 
     <!-- Audio Lab Screen -->
-    <string name="audiolab_title">Аудиолаборатория</string>
-    <string name="audiolab_subtitle">Калибровка динамика, микрофона и спектральный анализ (SN-014)</string>
+    <string name="audiolab_title">SilentNetwork — LAPTOP → PHONE</string>
+    <string name="audiolab_subtitle">Приём тестового сигнала с ноутбука встроенным микрофоном и анализ записи</string>
     <string name="audiolab_transmitter_title">A. ПЕРЕДАТЧИК (Тестовый сигнал)</string>
     <string name="audiolab_transmitter_desc">Генерация чистого тона PCM16. Воспроизведение строго по кнопке PLAY.</string>
     <string name="audiolab_frequency">Частота тона:</string>
@@ -34,17 +34,28 @@
     <string name="audiolab_play_dialog_title">Подтверждение воспроизведения</string>
     <string name="audiolab_play_dialog_msg">Сейчас через динамик телефона будет воспроизведён тестовый сигнал %s на низкой амплитуде.\n\nПродолжить?</string>
 
-    <string name="audiolab_receiver_title">B. ПРИЁМНИК (Запись микрофона)</string>
-    <string name="audiolab_receiver_desc">Захват необработанного аудио (UNPROCESSED/MIC). Никакой скрытой фоновой записи.</string>
+    <string name="audiolab_receiver_title">B. LAPTOP → PHONE RECEIVER</string>
+    <string name="audiolab_receiver_desc">Ноутбук воспроизводит тестовый сигнал. Телефон принимает его встроенным микрофоном и сохраняет аудиозапись для анализа.</string>
     <string name="audiolab_rec_duration">Длительность записи:</string>
     <string name="audiolab_rec_source">Источник захвата:</string>
+    <string name="audiolab_test_id_label">TEST ID (с Windows):</string>
+    <string name="audiolab_test_id_hint">SN015-YYYYMMDDTHHMMSSZ-XXXXXXXX</string>
+    <string name="audiolab_expected_frequency">Ожидаемая частота (с Windows):</string>
     <string name="audiolab_btn_start_record">НАЧАТЬ ЗАПИСЬ</string>
     <string name="audiolab_btn_stop_record">ОСТАНОВИТЬ ЗАПИСЬ</string>
     <string name="audiolab_btn_export_rx_wav">Экспорт записи WAV</string>
     <string name="audiolab_btn_send_to_analyzer">Передать в анализатор</string>
-    <string name="audiolab_rec_state_idle">Статус: Готов к записи</string>
-    <string name="audiolab_rec_state_recording">Запись аудио... %1$.1f / %2$d сек</string>
-    <string name="audiolab_rec_state_completed">Запись завершена: получено %d сэмплов (PCM16 mono)</string>
+    <string name="audiolab_rec_state_idle">READY — запись не запущена. Нажмите «НАЧАТЬ ЗАПИСЬ».</string>
+    <string name="audiolab_rec_state_permission">PERMISSION REQUIRED — разрешите доступ к микрофону.</string>
+    <string name="audiolab_rec_state_recording">RECORDING — %.1f / %d сек. Теперь нажмите PLAY в Windows Acoustic Lab.</string>
+    <string name="audiolab_rec_state_completed">RECORDING COMPLETE — получено %d отсчётов. Нажмите «Передать в анализатор»; приём ещё не подтверждён.</string>
+    <string name="audiolab_rec_state_analyzed">ANALYZED — запись проанализирована. Проверьте ожидаемую и обнаруженную частоту.</string>
+    <string name="audiolab_rec_state_error">ERROR — %s</string>
+    <string name="audiolab_route_info">Маршрут: запрошено %1$s; факт: %2$s | Fs: %3$d Гц</string>
+    <string name="audiolab_route_unknown">не сообщается Android</string>
+    <string name="audiolab_route_info_placeholder">Маршрут: неизвестен</string>
+    <string name="audiolab_expected_vs_detected">Expected vs Detected</string>
+    <string name="audiolab_unverified">Приём не подтверждён: WAV создан, но анализ ещё не выполнен.</string>
 
     <string name="audiolab_analyzer_title">C. АНАЛИЗАТОР (Спектр и клиппинг)</string>
     <string name="audiolab_analyzer_desc">Бортовой расчёт RMS, Peak, dBFS, клиппинга, DC offset и спектральных пиков.</string>

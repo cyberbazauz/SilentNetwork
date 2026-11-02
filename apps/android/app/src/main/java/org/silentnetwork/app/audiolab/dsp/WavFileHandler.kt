@@ -8,6 +8,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 
 /**
  * Strict WAV encoder and decoder for PCM 16-bit audio.
@@ -39,6 +40,9 @@ object WavFileHandler {
     ): ByteArray {
         require(channels in 1..2) { "Only mono (1) or stereo (2) supported" }
         require(sampleRate > 0) { "Sample rate must be positive" }
+        require(pcmData.size % (channels * 2) == 0) {
+            "PCM16 payload must contain complete ${channels * 2}-byte frames"
+        }
 
         val bitsPerSample = 16
         val byteRate = sampleRate * channels * (bitsPerSample / 8)
@@ -206,13 +210,13 @@ object WavFileHandler {
         if (channels == 1) {
             for (i in 0 until sampleCountPerChannel) {
                 val shortVal = buffer.short
-                samples[i] = (shortVal / 32767.0f).coerceIn(-1.0f, 1.0f)
+                samples[i] = (shortVal / 32768.0f).coerceIn(-1.0f, 1.0f)
             }
         } else {
             // Stereo downmix to mono (average left + right)
             for (i in 0 until sampleCountPerChannel) {
-                val left = buffer.short / 32767.0f
-                val right = buffer.short / 32767.0f
+                val left = buffer.short / 32768.0f
+                val right = buffer.short / 32768.0f
                 samples[i] = ((left + right) * 0.5f).coerceIn(-1.0f, 1.0f)
             }
         }
@@ -236,5 +240,28 @@ object WavFileHandler {
         return FileInputStream(file).use { fis ->
             decodePcm16Wav(fis)
         }
+    }
+
+    /**
+     * SHA-256 of the raw WAV bytes, used by the shared SN-015 result contract.
+     * The digest is lowercase hex and covers exactly the file that is exported,
+     * so Windows can verify that the analyzed file is the one that was recorded.
+     */
+    fun sha256Hex(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(data)
+        return digest.joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 }
