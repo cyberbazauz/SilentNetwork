@@ -5,14 +5,15 @@
 используются как транспорт данных и не являются резервным каналом.
 
 **Текущее состояние: исследовательский этап.** Работающего акустического
-модема, криптографии, протокола SCNP, mesh-сети и Android-приложения пока нет.
-Ни одна передача через воздух не выполнялась и не подтверждена.
+модема, криптографии, протокола SCNP и mesh-сети пока нет. Есть файловый
+BFSK-тракт, Windows Desktop Lab и Android Audio Lab для приёма и анализа
+записи. Ни одна передача через воздух не подтверждена.
 
 ## Что уже есть
 
 | Область | Состояние |
 |---|---|
-| Нормативные документы проекта | есть (`AGENTS.md`, `GEMINI.md`, `TASK_BOARD.md`) |
+| Нормативные документы проекта | есть (`AGENTS.md`, `TASK_BOARD.md`) |
 | Аудит репозитория и окружения | выполнен: `docs/audit/2026-11-01-repository-audit.md` |
 | Исходная архитектура v1.0 | каноническая копия в `docs/reference/` |
 | Acoustic Lab: инфраструктура | есть и покрыта тестами (`acoustic-lab/snlab/`) |
@@ -20,18 +21,17 @@
 | Acoustic Lab: BFSK-передатчик (WAV) | реализован, 20/20 одинаковых SHA-256 (SN-011) |
 | Acoustic Lab: BFSK-приёмник (WAV) | реализован, файловый round-trip и проверка CRC (SN-021) |
 | Acoustic Lab: BER/PER benchmark (AWGN) | реализован, M0-6 100/100 при 15 дБ (SN-013) |
+| Windows Desktop Lab | реализован: WAV, PLAY через выбранный динамик, анализ записи телефона (SN-015/SN-016) |
+| Android Audio Lab | реализован: запись, WAV/JSON, анализ и вердикт (SN-015/SN-016) |
 | Реальная передача Windows ↔ Windows | не выполнялась |
 | Rust Core, SCNP, криптография | не реализованы |
-| Android-приложение | не реализовано (зона Gemini) |
 
 ## Структура репозитория
 
 ```text
 SilentNetwork/
-├── AGENTS.md                     # правила Agent 1 (Chief Engineer)
-├── GEMINI.md                     # правила Agent 2 (Android)
+├── AGENTS.md                     # правила Agent 1 (единственный агент)
 ├── PROMPT_AGENT_1.txt            # стартовый промпт Agent 1
-├── PROMPT_GEMINI.txt             # стартовый промпт Agent 2
 ├── TASK_BOARD.md                 # единый статус задач
 ├── .gitignore / .gitattributes
 ├── docs/
@@ -94,8 +94,8 @@ BFSK-приёмник и BER/PER benchmark; аудиобэкенд в теста
 
 ## Роли
 
-- **Agent 1** — архитектура, Acoustic Lab, DSP/PHY, Rust Core, SCNP, mesh.
-- **Gemini** — Android-приложение, аудиоадаптер, интеграция по утверждённому API.
+- **Agent 1** — архитектура, Acoustic Lab, DSP/PHY, Rust Core, SCNP, mesh,
+  Windows Desktop Lab, Android-приложение и интеграция.
 - **Product Owner** — решения по требованиям, контрактам и приёмке этапов.
 
 ## Лицензия
