@@ -85,4 +85,56 @@ class AudioLabPresentationTest {
         assertEquals("18.5 кГц", AudioLabState.formatFrequencyLabel(18500.0))
         assertEquals("19 кГц", AudioLabState.formatFrequencyLabel(19000.0))
     }
+
+    @Test
+    fun testFormatFrequencySummary() {
+        assertEquals(
+            "Ожидалось: 18.5 кГц · обнаружено: 18.5 кГц",
+            AudioLabState.formatFrequencySummary(18500.0, 18500.0)
+        )
+        assertEquals(
+            "Ожидалось: 18.5 кГц · обнаружено: не найден",
+            AudioLabState.formatFrequencySummary(18500.0, null)
+        )
+        assertEquals(
+            "Ожидалось: не задана · обнаружено: 1000 Гц",
+            AudioLabState.formatFrequencySummary(null, 1000.0)
+        )
+    }
+
+    @Test
+    fun testFormatTimerClampsValues() {
+        assertEquals("00:00 / 00:10", AudioLabState.formatTimer(0.0, 10))
+        assertEquals("00:03 / 00:10", AudioLabState.formatTimer(3.2, 10))
+        assertEquals("00:10 / 00:10", AudioLabState.formatTimer(12.0, 10))
+        assertEquals("01:05 / 02:00", AudioLabState.formatTimer(65.0, 120))
+        assertEquals("00:00 / 00:00", AudioLabState.formatTimer(-4.0, 0))
+    }
+
+    @Test
+    fun testClassifySignalVerdicts() {
+        val found = AudioLabState.classifySignal(18500.0, 18520.0, -20.0, 0)
+        assertEquals(AudioLabState.VerdictLevel.SUCCESS, found.level)
+        assertEquals("Сигнал найден", found.title)
+
+        val wrongTone = AudioLabState.classifySignal(18500.0, 17000.0, -20.0, 0)
+        assertEquals(AudioLabState.VerdictLevel.WARNING, wrongTone.level)
+        assertEquals("Найден другой тон", wrongTone.title)
+
+        val missing = AudioLabState.classifySignal(18500.0, null, -20.0, 0)
+        assertEquals(AudioLabState.VerdictLevel.ERROR, missing.level)
+        assertEquals("Сигнал не найден", missing.title)
+
+        val clipping = AudioLabState.classifySignal(18500.0, 18500.0, -20.0, 5)
+        assertEquals(AudioLabState.VerdictLevel.WARNING, clipping.level)
+        assertEquals("Сигнал слишком громкий", clipping.title)
+
+        val quiet = AudioLabState.classifySignal(18500.0, 18500.0, -80.0, 0)
+        assertEquals(AudioLabState.VerdictLevel.WARNING, quiet.level)
+        assertEquals("Сигнал слишком тихий", quiet.title)
+
+        val unknownTarget = AudioLabState.classifySignal(null, 18500.0, -20.0, 0)
+        assertEquals(AudioLabState.VerdictLevel.NEUTRAL, unknownTarget.level)
+        assertEquals("Запись проанализирована", unknownTarget.title)
+    }
 }

@@ -9,7 +9,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingStart="20dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="12dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -28,71 +31,41 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/bg_card_stroke" />
-
-    <!-- Discovery Status Banner -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
         android:background="@drawable/bg_card_glass"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="14dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/devices_status_title"
-                android:textColor="@color/text_muted"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_badge_warning"
-                android:paddingStart="8dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="8dp"
-                android:paddingBottom="3dp"
-                android:text="SN-050"
-                android:textColor="@color/accent_rose"
-                android:textSize="10sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+            android:text="@string/devices_status_title"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/tv_discovery_status"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="2dp"
             android:text="@string/devices_status_val"
-            android:textColor="@color/accent_amber"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:text="@string/devices_info_desc"
-            android:textColor="@color/text_secondary"
+            android:textColor="@color/text_muted"
             android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- Empty State View -->
     <LinearLayout
         android:id="@+id/ll_empty_devices"
         android:layout_width="match_parent"
@@ -103,8 +76,8 @@
         android:padding="32dp">
 
         <ImageView
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:contentDescription="@string/tab_devices"
             android:src="@drawable/ic_tab_devices"
             android:tint="@color/text_muted" />
@@ -112,7 +85,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:gravity="center"
             android:text="@string/devices_empty_hint"
             android:textColor="@color/text_secondary"
@@ -121,16 +94,15 @@
         <Button
             android:id="@+id/btn_scan_devices"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/bg_button_gradient"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
+            android:layout_height="42dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_button_secondary"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
             android:text="@string/devices_btn_info"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:textColor="@color/accent_primary"
+            android:textSize="12sp" />
     </LinearLayout>
 
 </LinearLayout>

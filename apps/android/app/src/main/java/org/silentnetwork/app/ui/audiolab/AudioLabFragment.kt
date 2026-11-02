@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -124,8 +125,48 @@ class AudioLabFragment : Fragment() {
         setupTransmitterSection()
         setupReceiverSection()
         setupAnalyzerSection()
+        setupCollapsibleSections()
         checkHardwareEffects()
         checkMicPermissionStatus()
+    }
+
+    private fun setupCollapsibleSections() {
+        bindCollapsible(
+            binding.tvAdvancedToggle,
+            binding.llAdvanced,
+            R.string.audiolab_advanced_opened,
+            R.string.audiolab_advanced_closed
+        )
+        bindCollapsible(
+            binding.tvRxDetailsToggle,
+            binding.llRxDetails,
+            R.string.audiolab_details_opened,
+            R.string.audiolab_details_closed
+        )
+        bindCollapsible(
+            binding.tvTransmitterToggle,
+            binding.llTransmitter,
+            R.string.audiolab_transmitter_opened,
+            R.string.audiolab_transmitter_closed
+        )
+    }
+
+    private fun bindCollapsible(
+        toggle: TextView,
+        content: View,
+        openedText: Int,
+        closedText: Int
+    ) {
+        var expanded = content.visibility == View.VISIBLE
+        fun render() {
+            toggle.setText(if (expanded) openedText else closedText)
+            content.visibility = if (expanded) View.VISIBLE else View.GONE
+        }
+        toggle.setOnClickListener {
+            expanded = !expanded
+            render()
+        }
+        render()
     }
 
     override fun onPause() {
@@ -275,17 +316,21 @@ class AudioLabFragment : Fragment() {
         val isM0 = AudioLabState.isExperimentalM0Band(freq)
         binding.tvTransmitterBandBadge.visibility = View.VISIBLE
         if (isM0) {
-            binding.tvTransmitterBandBadge.text = "ГИПОТЕЗА M0"
-            binding.tvTransmitterBandBadge.setBackgroundResource(R.drawable.bg_badge_warning)
-            binding.tvTransmitterBandBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_rose))
+            binding.tvTransmitterBandBadge.text =
+                "Экспериментальный диапазон 18–19 кГц. Поддержка зависит от устройства."
+            binding.tvTransmitterBandBadge.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.accent_amber)
+            )
         } else if (AudioLabState.isAudibleRange(freq)) {
-            binding.tvTransmitterBandBadge.text = "СЛЫШИМЫЙ ТОН"
-            binding.tvTransmitterBandBadge.setBackgroundResource(R.drawable.bg_badge_mock)
-            binding.tvTransmitterBandBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_amber))
+            binding.tvTransmitterBandBadge.text = "Слышимый контрольный тон."
+            binding.tvTransmitterBandBadge.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.text_muted)
+            )
         } else {
-            binding.tvTransmitterBandBadge.text = "УЛЬТРАЗВУК"
-            binding.tvTransmitterBandBadge.setBackgroundResource(R.drawable.bg_badge_ready)
-            binding.tvTransmitterBandBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_cyan))
+            binding.tvTransmitterBandBadge.text = "Ультразвуковой диапазон."
+            binding.tvTransmitterBandBadge.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.text_muted)
+            )
         }
     }
 
@@ -465,7 +510,7 @@ class AudioLabFragment : Fragment() {
         binding.tvRxStatus.text = when (state) {
             AudioLabState.ReceiverUiState.READY -> getString(R.string.audiolab_rec_state_idle)
             AudioLabState.ReceiverUiState.PERMISSION_REQUIRED -> getString(R.string.audiolab_rec_state_permission)
-            AudioLabState.ReceiverUiState.RECORDING -> getString(R.string.audiolab_rec_state_recording, 0.0, 0)
+            AudioLabState.ReceiverUiState.RECORDING -> getString(R.string.audiolab_rec_state_recording)
             AudioLabState.ReceiverUiState.RECORDING_COMPLETE ->
                 getString(R.string.audiolab_rec_state_completed, sampleCount ?: 0)
             AudioLabState.ReceiverUiState.ANALYZED -> getString(R.string.audiolab_rec_state_analyzed)
@@ -519,13 +564,15 @@ class AudioLabFragment : Fragment() {
     private fun updateMicPermissionBadge(granted: Boolean) {
         if (_binding == null) return
         if (granted) {
-            binding.tvRxPermissionBadge.text = "MIC: ДОСТУПЕН"
-            binding.tvRxPermissionBadge.setBackgroundResource(R.drawable.bg_badge_ready)
-            binding.tvRxPermissionBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_emerald))
+            binding.tvRxPermissionBadge.text = getString(R.string.audiolab_mic_granted)
+            binding.tvRxPermissionBadge.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.accent_emerald)
+            )
         } else {
-            binding.tvRxPermissionBadge.text = "MIC: ТРЕБУЕТСЯ ДОСТУП"
-            binding.tvRxPermissionBadge.setBackgroundResource(R.drawable.bg_badge_warning)
-            binding.tvRxPermissionBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_rose))
+            binding.tvRxPermissionBadge.text = getString(R.string.audiolab_mic_denied)
+            binding.tvRxPermissionBadge.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.accent_amber)
+            )
         }
     }
 
@@ -556,16 +603,20 @@ class AudioLabFragment : Fragment() {
 
         binding.btnStartRecord.isEnabled = false
         binding.btnStopRecord.isEnabled = true
+        binding.tvRxTimer.text = AudioLabState.formatTimer(0.0, durationSec)
+        binding.tvRxVerdict.text = getString(R.string.audiolab_verdict_idle)
+        binding.tvRxVerdictHint.text = getString(R.string.audiolab_verdict_hint_idle)
+        binding.tvRxVerdict.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
+        binding.tvMetricFrequencyError.text = getString(R.string.audiolab_expected_vs_detected)
         setReceiverState(AudioLabState.ReceiverUiState.RECORDING)
-        binding.tvRxStatus.text = getString(R.string.audiolab_rec_state_recording, 0.0, durationSec)
 
         val result = recorderEngine.startRecording(
             sampleRate = sampleRate,
             durationSeconds = durationSec,
             onProgress = { elapsed ->
                 mainHandler.post {
-                    _binding?.tvRxStatus?.text =
-                        getString(R.string.audiolab_rec_state_recording, elapsed, durationSec)
+                    _binding?.tvRxTimer?.text =
+                        AudioLabState.formatTimer(elapsed, durationSec)
                 }
             },
             onComplete = { pcmData, actualRate ->
@@ -635,7 +686,12 @@ class AudioLabFragment : Fragment() {
             updateRouteInfo(lastReceiverRouteInfo)
             binding.btnExportRxWav.isEnabled = true
             binding.btnSendRxToAnalyzer.isEnabled = true
-            Toast.makeText(requireContext(), "Аудио записано в WAV. Приём ещё не подтверждён.", Toast.LENGTH_SHORT).show()
+            binding.tvRxTimer.text = AudioLabState.formatTimer(
+                sampleCount.toDouble() / actualRate.toDouble(),
+                sampleCount / actualRate
+            )
+            Toast.makeText(requireContext(), "Запись сохранена. Анализируем сигнал…", Toast.LENGTH_SHORT).show()
+            analyzeWavFile(destFile, expectedFrequencyHz)
         } catch (t: Throwable) {
             setReceiverState(
                 AudioLabState.ReceiverUiState.ERROR,
@@ -750,15 +806,6 @@ class AudioLabFragment : Fragment() {
         binding.tvMetricPeak.text = AudioLabState.formatPeakStatus(result.peakDbfs)
 
         binding.tvMetricClipping.text = AudioLabState.formatClippingStatus(result.clippingCount)
-        if (result.hasClipping) {
-            binding.tvClippingBadge.text = "КЛИППИНГ ОБНАРУЖЕН"
-            binding.tvClippingBadge.setBackgroundResource(R.drawable.bg_badge_warning)
-            binding.tvClippingBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_rose))
-        } else {
-            binding.tvClippingBadge.text = "КЛИППИНГ: НЕТ"
-            binding.tvClippingBadge.setBackgroundResource(R.drawable.bg_badge_ready)
-            binding.tvClippingBadge.setTextColor(ContextCompat.getColor(requireContext(), R.color.accent_emerald))
-        }
 
         binding.tvMetricDcOffset.text = String.format(Locale.US, "DC offset: %.5f", result.dcOffset)
         binding.tvMetricSamples.text = "Отсчёты: ${result.sampleCount} (${result.sampleRate} Гц)"
@@ -772,7 +819,23 @@ class AudioLabFragment : Fragment() {
         )
 
         val expected = result.expectedFrequencyHz ?: lastExpectedFrequencyHz
-        binding.tvMetricFrequencyError.text = AudioLabState.formatFrequencyError(
+        val verdict = AudioLabState.classifySignal(
+            expectedFrequencyHz = expected,
+            detectedFrequencyHz = result.detectedFrequencyHz,
+            rmsDbfs = result.rmsDbfs,
+            clippingCount = result.clippingCount
+        )
+        binding.tvRxVerdict.text = verdict.title
+        binding.tvRxVerdictHint.text = verdict.hint
+        val verdictColor = when (verdict.level) {
+            AudioLabState.VerdictLevel.SUCCESS -> R.color.accent_emerald
+            AudioLabState.VerdictLevel.WARNING -> R.color.accent_amber
+            AudioLabState.VerdictLevel.ERROR -> R.color.accent_rose
+            AudioLabState.VerdictLevel.NEUTRAL -> R.color.text_primary
+        }
+        binding.tvRxVerdict.setTextColor(ContextCompat.getColor(requireContext(), verdictColor))
+
+        binding.tvMetricFrequencyError.text = AudioLabState.formatFrequencySummary(
             expected,
             result.detectedFrequencyHz
         )

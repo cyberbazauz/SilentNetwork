@@ -44,6 +44,14 @@ class StatusFragment : Fragment() {
         updatePermissionStatus(hasPermission)
         inspectAudioHardware()
 
+        binding.tvStatusDetailsToggle.setOnClickListener {
+            val expanded = binding.llStatusDetails.visibility == View.VISIBLE
+            binding.llStatusDetails.visibility = if (expanded) View.GONE else View.VISIBLE
+            binding.tvStatusDetailsToggle.setText(
+                if (expanded) R.string.status_details_closed else R.string.status_details_opened
+            )
+        }
+
         binding.btnRequestPermission.setOnClickListener {
             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
@@ -91,13 +99,13 @@ class StatusFragment : Fragment() {
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
 
         val hardwareInfo = StringBuilder()
-        hardwareInfo.append("Целевой Sample Rate: 48 000 Гц\n")
-        hardwareInfo.append("Канал: Mono, PCM 16-bit LE\n")
+        hardwareInfo.append("Частота дискретизации: 48 000 Гц\n")
+        hardwareInfo.append("Канал: моно, PCM 16 бит\n")
         if (minBufferSize > 0) {
-            hardwareInfo.append("Аппаратный Min Buffer Size: $minBufferSize байт (~${minBufferSize / 2} сэмплов)\n")
-            hardwareInfo.append("AudioRecord HAL: Поддерживается оборудованием")
+            hardwareInfo.append("Минимальный буфер: $minBufferSize байт\n")
+            hardwareInfo.append("AudioRecord: поддерживается устройством")
         } else {
-            hardwareInfo.append("AudioRecord HAL: Конфигурация требует уточнения")
+            hardwareInfo.append("AudioRecord: параметры требуют уточнения")
         }
         binding.tvHardwareInfo.text = hardwareInfo.toString()
     }

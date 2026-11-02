@@ -1,117 +1,145 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SilentNetwork</string>
-    <string name="app_version">v0.1.0-alpha (Android Stabilization)</string>
+    <string name="app_subtitle">Передача данных через звук</string>
 
-    <!-- Navigation Tabs -->
+    <!-- Navigation -->
     <string name="tab_status">Статус</string>
     <string name="tab_messenger">Чат</string>
     <string name="tab_devices">Узлы</string>
     <string name="tab_audiolab">Audio Lab</string>
     <string name="tab_settings">Настройки</string>
 
-    <!-- Visual Markers -->
-    <string name="badge_mock">[TEST / SKELETON]</string>
-    <string name="badge_ready">[ГОТОВО]</string>
-    <string name="badge_wip">[В РАЗРАБОТКЕ]</string>
-    <string name="badge_experimental">[ГИПОТЕЗА M0]</string>
-    <string name="tag_no_radio">100% ACOUSTIC TRANSPORT</string>
-
-    <!-- Audio Lab Screen -->
-    <string name="audiolab_title">SilentNetwork — LAPTOP → PHONE</string>
-    <string name="audiolab_subtitle">Приём тестового сигнала с ноутбука встроенным микрофоном и анализ записи</string>
-    <string name="audiolab_transmitter_title">A. ПЕРЕДАТЧИК (Тестовый сигнал)</string>
-    <string name="audiolab_transmitter_desc">Генерация чистого тона PCM16. Воспроизведение строго по кнопке PLAY.</string>
-    <string name="audiolab_frequency">Частота тона:</string>
-    <string name="audiolab_sample_rate">Sample Rate:</string>
-    <string name="audiolab_duration">Длительность:</string>
-    <string name="audiolab_amplitude">Амплитуда (громкость сигнала):</string>
-    <string name="audiolab_experimental_warn">Внимание: частоты 18–19 кГц являются экспериментальной гипотезой M0 и не гарантируют слышимость или аппаратную поддержку всеми излучателями.</string>
-    <string name="audiolab_btn_generate_wav">Сгенерировать WAV</string>
-    <string name="audiolab_btn_play">PLAY (Воспроизвести)</string>
-    <string name="audiolab_btn_stop">STOP (Остановить)</string>
-    <string name="audiolab_btn_export_tx_wav">Экспорт тест-WAV</string>
-    <string name="audiolab_play_dialog_title">Подтверждение воспроизведения</string>
-    <string name="audiolab_play_dialog_msg">Сейчас через динамик телефона будет воспроизведён тестовый сигнал %s на низкой амплитуде.\n\nПродолжить?</string>
-
-    <string name="audiolab_receiver_title">B. LAPTOP → PHONE RECEIVER</string>
-    <string name="audiolab_receiver_desc">Ноутбук воспроизводит тестовый сигнал. Телефон принимает его встроенным микрофоном и сохраняет аудиозапись для анализа.</string>
-    <string name="audiolab_rec_duration">Длительность записи:</string>
-    <string name="audiolab_rec_source">Источник захвата:</string>
-    <string name="audiolab_test_id_label">TEST ID (с Windows):</string>
+    <!-- Audio Lab -->
+    <string name="audiolab_title">Проверка звукового канала</string>
+    <string name="audiolab_subtitle">Запись сигнала с ноутбука и анализ на телефоне</string>
+    <string name="audiolab_result_title">Результат</string>
+    <string name="audiolab_spectrum_title">Спектр записи</string>
+    <string name="audiolab_details_closed">▸ Подробнее</string>
+    <string name="audiolab_details_opened">▾ Подробнее</string>
+    <string name="audiolab_advanced_closed">▸ Дополнительные настройки</string>
+    <string name="audiolab_advanced_opened">▾ Дополнительные настройки</string>
+    <string name="audiolab_transmitter_closed">▸ Передатчик тестового сигнала</string>
+    <string name="audiolab_transmitter_opened">▾ Передатчик тестового сигнала</string>
+    <string name="audiolab_transmitter_mode_hint">Информация о частоте появится после выбора.</string>
+    <string name="audiolab_tx_preview_idle">Параметры: --</string>
+    <string name="audiolab_btn_analyze_tx">Анализ WAV</string>
+    <string name="audiolab_tx_status_idle">Готово к созданию сигнала</string>
+    <string name="audiolab_metric_rms_idle">RMS: --</string>
+    <string name="audiolab_metric_peak_idle">Пик: --</string>
+    <string name="audiolab_metric_clipping_idle">Клиппинг: --</string>
+    <string name="audiolab_metric_dc_idle">Постоянная составляющая: --</string>
+    <string name="audiolab_metric_samples_idle">Отсчёты: --</string>
+    <string name="audiolab_metric_duration_idle">Длительность: -- сек</string>
+    <string name="audiolab_metric_dominant_idle">Доминирующая частота: --</string>
+    <string name="audiolab_metric_band_idle">Доля энергии 18–19 кГц: --</string>
+    <string name="audiolab_peaks_idle">Спектральные пики появятся после анализа.</string>
+    <string name="audiolab_mic_unknown">Микрофон: проверка доступа…</string>
+    <string name="audiolab_mic_granted">Микрофон: доступен</string>
+    <string name="audiolab_mic_denied">Микрофон: нужен доступ</string>
+    <string name="audiolab_receiver_title">Приём сигнала</string>
+    <string name="audiolab_receiver_desc">На ноутбуке запустите тестовый сигнал, затем начните запись здесь.</string>
+    <string name="audiolab_rec_duration">Длительность записи</string>
+    <string name="audiolab_sample_rate">Частота дискретизации</string>
+    <string name="audiolab_frequency">Частота тона</string>
+    <string name="audiolab_duration">Длительность</string>
+    <string name="audiolab_amplitude">Амплитуда</string>
+    <string name="audiolab_test_id_label">ID теста</string>
     <string name="audiolab_test_id_hint">SN015-YYYYMMDDTHHMMSSZ-XXXXXXXX</string>
-    <string name="audiolab_expected_frequency">Ожидаемая частота (с Windows):</string>
+    <string name="audiolab_expected_frequency">Ожидаемая частота</string>
     <string name="audiolab_btn_start_record">НАЧАТЬ ЗАПИСЬ</string>
-    <string name="audiolab_btn_stop_record">ОСТАНОВИТЬ ЗАПИСЬ</string>
-    <string name="audiolab_btn_export_rx_wav">Экспорт записи WAV</string>
-    <string name="audiolab_btn_send_to_analyzer">Передать в анализатор</string>
-    <string name="audiolab_rec_state_idle">READY — запись не запущена. Нажмите «НАЧАТЬ ЗАПИСЬ».</string>
-    <string name="audiolab_rec_state_permission">PERMISSION REQUIRED — разрешите доступ к микрофону.</string>
-    <string name="audiolab_rec_state_recording">RECORDING — %.1f / %d сек. Теперь нажмите PLAY в Windows Acoustic Lab.</string>
-    <string name="audiolab_rec_state_completed">RECORDING COMPLETE — получено %d отсчётов. Нажмите «Передать в анализатор»; приём ещё не подтверждён.</string>
-    <string name="audiolab_rec_state_analyzed">ANALYZED — запись проанализирована. Проверьте ожидаемую и обнаруженную частоту.</string>
-    <string name="audiolab_rec_state_error">ERROR — %s</string>
-    <string name="audiolab_route_info">Маршрут: запрошено %1$s; факт: %2$s | Fs: %3$d Гц</string>
+    <string name="audiolab_btn_stop_record">Остановить запись</string>
+    <string name="audiolab_btn_export_rx_wav">Сохранить WAV</string>
+    <string name="audiolab_btn_send_to_analyzer">Повторить анализ</string>
+    <string name="audiolab_btn_import_wav">Открыть WAV из памяти</string>
+    <string name="audiolab_btn_export_json">Сохранить отчёт</string>
+    <string name="audiolab_rec_state_idle">Готово к записи</string>
+    <string name="audiolab_rec_state_permission">Нужен доступ к микрофону</string>
+    <string name="audiolab_rec_state_recording">Идёт запись</string>
+    <string name="audiolab_rec_state_completed">Запись сохранена</string>
+    <string name="audiolab_rec_state_analyzed">Запись проанализирована</string>
+    <string name="audiolab_rec_state_error">Ошибка: %s</string>
+    <string name="audiolab_timer_idle">00:00</string>
+    <string name="audiolab_verdict_idle">Результат появится после записи</string>
+    <string name="audiolab_verdict_hint_idle">Сделайте запись сигнала, и приложение покажет, найден ли он.</string>
+    <string name="audiolab_advanced">Дополнительные настройки</string>
+    <string name="audiolab_details">Подробнее</string>
+    <string name="audiolab_transmitter_toggle">Передатчик тестового сигнала</string>
+    <string name="audiolab_transmitter_title">Тестовый сигнал с телефона</string>
+    <string name="audiolab_transmitter_desc">Необязательный режим: телефон воспроизводит тон через свой динамик.</string>
+    <string name="audiolab_btn_generate_wav">Создать WAV</string>
+    <string name="audiolab_btn_play">Воспроизвести</string>
+    <string name="audiolab_btn_stop">Стоп</string>
+    <string name="audiolab_btn_export_tx_wav">Сохранить WAV</string>
+    <string name="audiolab_play_dialog_title">Воспроизвести сигнал?</string>
+    <string name="audiolab_play_dialog_msg">Сейчас через динамик телефона прозвучит тестовый сигнал %s.\n\nПродолжить?</string>
+    <string name="audiolab_route_info_placeholder">Маршрут записи: неизвестен</string>
+    <string name="audiolab_route_info">Маршрут: %1$s; факт: %2$s; Fs: %3$d Гц</string>
     <string name="audiolab_route_unknown">не сообщается Android</string>
-    <string name="audiolab_route_info_placeholder">Маршрут: неизвестен</string>
-    <string name="audiolab_expected_vs_detected">Expected vs Detected</string>
-    <string name="audiolab_unverified">Приём не подтверждён: WAV создан, но анализ ещё не выполнен.</string>
+    <string name="audiolab_expected_vs_detected">Ожидаемая и обнаруженная частота: --</string>
+    <string name="audiolab_analyzer_title">Результат анализа</string>
+    <string name="audiolab_analyzer_desc">Уровень, клиппинг, доминирующая частота и спектр записи.</string>
+    <string name="audiolab_snr_note">SNR не рассчитывается: в одиночной записи нет эталонного сигнала.</string>
+    <string name="audiolab_quick_launch">Открыть Audio Lab</string>
+    <string name="audiolab_timer_format">%1$s / %2$s</string>
 
-    <string name="audiolab_analyzer_title">C. АНАЛИЗАТОР (Спектр и клиппинг)</string>
-    <string name="audiolab_analyzer_desc">Бортовой расчёт RMS, Peak, dBFS, клиппинга, DC offset и спектральных пиков.</string>
-    <string name="audiolab_btn_import_wav">Импортировать WAV из памяти</string>
-    <string name="audiolab_btn_analyze">Анализировать текущий файл</string>
-    <string name="audiolab_btn_export_json">Экспорт JSON-отчёта</string>
-    <string name="audiolab_snr_note">Примечание: SNR не рассчитывается (для одиночной записи без известной модели шума и эталонного сигнала расчёт SNR некорректен).</string>
-    <string name="audiolab_quick_launch">Открыть Audio Lab (Калибровка)</string>
+    <!-- Status -->
+    <string name="status_title">SilentNetwork</string>
+    <string name="status_subtitle">Передача данных через звук</string>
+    <string name="status_mic_title">Микрофон</string>
+    <string name="status_mic_desc">Нужен для записи сигнала в Audio Lab.</string>
+    <string name="status_perm_granted">Разрешён</string>
+    <string name="status_perm_denied">Не разрешён</string>
+    <string name="status_btn_request_perm">Разрешить микрофон</string>
+    <string name="status_core_title">Связь с ядром</string>
+    <string name="status_core_pending">Не подключено</string>
+    <string name="status_core_desc">Передача сообщений появится после интеграции Rust Core. Сейчас доступна только проверка звукового канала.</string>
+    <string name="status_details">Подробнее</string>
+    <string name="status_details_closed">▸ Подробнее</string>
+    <string name="status_details_opened">▾ Подробнее</string>
+    <string name="status_channel_state">Состояние канала</string>
+    <string name="status_channel_disconnected">Не подключено</string>
+    <string name="status_title_screen">Проверка звука</string>
+    <string name="status_title_screen_desc">Запишите сигнал с ноутбука и проверьте, слышит ли его телефон.</string>
+    <string name="status_transfer_title">Передача данных</string>
+    <string name="status_transfer_value">Не подключено</string>
+    <string name="status_transfer_desc">Обмен сообщениями появится после подключения ядра. Сейчас доступна только проверка звукового канала.</string>
+    <string name="status_hardware_details_title">Аудиооборудование</string>
+    <string name="status_hardware_loading">Проверка параметров аудиозаписи…</string>
 
-    <!-- Status Screen -->
-    <string name="status_title">Акустический канал</string>
-    <string name="status_subtitle">Диагностика окружения и аппаратного аудиотракта</string>
-    <string name="status_channel_state">Состояние тракта</string>
-    <string name="status_channel_disconnected">DISCONNECTED (ядро не подключено)</string>
-    <string name="status_channel_desc">Статус отражает реальное состояние Core; фиктивная передача исключена правилами проекта.</string>
-    <string name="status_hardware">Аудиооборудование Android</string>
-    <string name="status_core_binding">Связка с Core (FFI)</string>
-    <string name="status_core_pending">Ожидает docs/android-core-api.md (SN-040)</string>
-    <string name="status_core_desc">Kotlin UI ожидает утверждения FFI-контракта от Agent 1. Заглушки с эмуляцией передачи запрещены правилами проекта.</string>
-    <string name="status_mic_permission">Разрешение на микрофон</string>
-    <string name="status_perm_granted">Предоставлено</string>
-    <string name="status_perm_denied">Требуется подтверждение</string>
-    <string name="status_btn_request_perm">Запросить доступ к микрофону</string>
-
-    <!-- Messenger Screen -->
-    <string name="messenger_title">Защищённый диалог</string>
-    <string name="messenger_subtitle">Прямая акустическая сессия (Direct Link / Mesh)</string>
-    <string name="messenger_banner_disabled">РЕЖИМ ПОДГОТОВКИ (SKELETON): Передача заблокирована — ядро Rust Core не подключено.</string>
-    <string name="messenger_empty_hint">Сообщений пока нет.\nОтправка реальных данных станет доступна после интеграции Rust Core (SN-042).</string>
-    <string name="messenger_input_hint">Введите сообщение...</string>
+    <!-- Messenger -->
+    <string name="messenger_title">Чат</string>
+    <string name="messenger_subtitle">Сообщения через звук появятся позже</string>
+    <string name="messenger_banner_disabled">Передача сообщений пока недоступна: ядро не подключено.</string>
+    <string name="messenger_empty_hint">Здесь будут сообщения, переданные через звук.</string>
+    <string name="messenger_input_hint">Введите сообщение…</string>
     <string name="messenger_btn_send">Отправить</string>
-    <string name="messenger_toast_disabled">Отправка невозможна: ядро Rust Core ещё не подключено. Фейковая передача исключена.</string>
-    <string name="messenger_error_empty">Введите текст сообщения перед отправкой.</string>
+    <string name="messenger_no_fake_delivery">Доставка не имитируется: сообщение будет отправлено только при подключённом ядре.</string>
 
-    <!-- Devices Screen -->
-    <string name="devices_title">Таблица соседей (Mesh Discovery)</string>
-    <string name="devices_subtitle">Узлы, обнаруженные по акустическим пакетам DISCOVERY/HELLO</string>
-    <string name="devices_status_title">Статус акустического сканирования</string>
-    <string name="devices_status_val">НЕАКТИВНО (ожидание этапа M1/Mesh SN-050)</string>
-    <string name="devices_empty_hint">Соседние акустические узлы не обнаружены.\nОжидание широковещательного маяка HELLO через звук...</string>
-    <string name="devices_info_desc">Акустическое сканирование эфира и таблица соседей станут доступны после интеграции Acoustic PHY и SCNP-пакетов. Захват микрофона на этом экране не активируется.</string>
-    <string name="devices_btn_info">Информация о готовности узлов</string>
+    <!-- Devices -->
+    <string name="devices_title">Узлы</string>
+    <string name="devices_subtitle">Устройства рядом, найденные через звук</string>
+    <string name="devices_status_title">Поиск узлов</string>
+    <string name="devices_status_val">Не запущен</string>
+    <string name="devices_empty_hint">Пока никого не найдено.</string>
+    <string name="devices_info_desc">Поиск узлов станет доступен после интеграции акустического канала.</string>
+    <string name="devices_btn_info">Почему пусто</string>
 
-    <!-- Settings Screen -->
-    <string name="settings_title">Параметры связи и безопасность</string>
-    <string name="settings_subtitle">Архитектурные ограничения и профили физического уровня</string>
-    <string name="settings_modem_profile">Профиль модема</string>
-    <string name="settings_modem_profile_val">BFSK 18–19 кГц, 300 бит/с (M0)</string>
-    <string name="settings_modem_profile_warn">ПРЕДВАРИТЕЛЬНЫЙ ТЕСТОВЫЙ ПРОФИЛЬ (гипотеза M0, не подтверждена на реальном мобильном железе)</string>
-    <string name="settings_audio_format">Формат PCM аудиобуфера</string>
-    <string name="settings_audio_format_val">48 000 Гц, Mono, 16-bit LE (целевой контракт)</string>
-    <string name="settings_crypto">Схема криптографии</string>
-    <string name="settings_crypto_val">XChaCha20-Poly1305 + Ed25519 (Core)</string>
-    <string name="settings_radio_policy">Политика радиосвязи</string>
-    <string name="settings_radio_policy_val">Wi-Fi, Bluetooth и сотовая связь строго исключены из транспорта</string>
-    <string name="settings_radio_policy_desc">Принцип SilentNetwork: передача данных осуществляется исключительно через звуковую волну (динамик -> воздух -> микрофон).</string>
-    <string name="settings_build_info">Сведения о сборке Android</string>
-    <string name="settings_build_info_val">Kotlin 1.9.22 | AGP 8.2.1 | Gradle 8.3 | compileSdk 34 | minSdk 26</string>
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_subtitle">Основные параметры</string>
+    <string name="settings_section_connection">Связь</string>
+    <string name="settings_modem_profile">Профиль сигнала</string>
+    <string name="settings_modem_profile_val">BFSK, 18–19 кГц, 300 бит/с</string>
+    <string name="settings_audio_format">Аудио</string>
+    <string name="settings_audio_format_val">48 000 Гц, моно, PCM 16 бит</string>
+    <string name="settings_section_security">Безопасность</string>
+    <string name="settings_crypto">Шифрование</string>
+    <string name="settings_crypto_val">XChaCha20-Poly1305, Ed25519</string>
+    <string name="settings_radio_policy">Транспорт</string>
+    <string name="settings_radio_policy_val">Только звук. Wi-Fi, Bluetooth и сотовая связь не используются.</string>
+    <string name="settings_section_about">О приложении</string>
+    <string name="settings_build_info">Версия</string>
+    <string name="settings_build_info_val">0.1.0-alpha</string>
+    <string name="settings_experimental_note">Профиль 18–19 кГц экспериментальный и не гарантирует поддержку всеми устройствами.</string>
 </resources>

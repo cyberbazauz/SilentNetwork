@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SilentNetwork" parent="Theme.AppCompat.NoActionBar">
-        <!-- Window background and status bar -->
+    <style name="Theme.SilentNetwork" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Light window, dark status/navigation icons -->
         <item name="android:windowBackground">@color/bg_canvas</item>
         <item name="android:statusBarColor">@color/bg_canvas</item>
-        <item name="android:navigationBarColor">@color/bg_canvas</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/bg_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
 
         <!-- Brand colors -->
         <item name="colorPrimary">@color/accent_primary</item>
         <item name="colorPrimaryDark">@color/bg_canvas</item>
-        <item name="colorAccent">@color/accent_cyan</item>
+        <item name="colorAccent">@color/accent_primary</item>
 
         <!-- Text appearance -->
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_muted</item>
     </style>
 </resources>

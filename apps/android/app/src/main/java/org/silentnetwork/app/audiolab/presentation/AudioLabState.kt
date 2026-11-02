@@ -143,6 +143,95 @@ object AudioLabState {
         return "Expected: $expected\nDetected: $detected\nError: $offset"
     }
 
+    fun formatFrequencySummary(expectedHz: Double?, detectedHz: Double?): String {
+        val expected = expectedHz?.let { formatFrequencyLabel(it) } ?: "не задана"
+        val detected = detectedHz?.let { formatFrequencyLabel(it) } ?: "не найден"
+        return "Ожидалось: $expected · обнаружено: $detected"
+    }
+
+    enum class VerdictLevel {
+        SUCCESS,
+        WARNING,
+        ERROR,
+        NEUTRAL
+    }
+
+    data class SignalVerdict(
+        val title: String,
+        val hint: String,
+        val level: VerdictLevel
+    )
+
+    /**
+     * Human-readable verdict for a finished analysis. It never claims delivery:
+     * it only says whether the expected tone is present in this recording.
+     */
+    fun classifySignal(
+        expectedFrequencyHz: Double?,
+        detectedFrequencyHz: Double?,
+        rmsDbfs: Double,
+        clippingCount: Int,
+        toleranceHz: Double = FREQUENCY_TOLERANCE_HZ
+    ): SignalVerdict {
+        if (clippingCount > 0) {
+            return SignalVerdict(
+                title = "Сигнал слишком громкий",
+                hint = "Микрофон перегружен. Уменьшите громкость ноутбука или отодвиньте телефон и повторите запись.",
+                level = VerdictLevel.WARNING
+            )
+        }
+        if (detectedFrequencyHz == null || !detectedFrequencyHz.isFinite()) {
+            return SignalVerdict(
+                title = "Сигнал не найден",
+                hint = "Тон не обнаружен в записи. Проверьте, что ноутбук воспроизводит сигнал, и повторите запись.",
+                level = VerdictLevel.ERROR
+            )
+        }
+        if (rmsDbfs < MIN_USABLE_RMS_DBFS) {
+            return SignalVerdict(
+                title = "Сигнал слишком тихий",
+                hint = "Уровень записи очень низкий. Увеличьте громкость ноутбука или поднесите телефон ближе.",
+                level = VerdictLevel.WARNING
+            )
+        }
+        if (expectedFrequencyHz != null && expectedFrequencyHz.isFinite()) {
+            val error = detectedFrequencyHz - expectedFrequencyHz
+            if (kotlin.math.abs(error) <= toleranceHz) {
+                return SignalVerdict(
+                    title = "Сигнал найден",
+                    hint = "Обнаружен тон ${formatFrequencyLabel(detectedFrequencyHz)} — совпадает с ожидаемым.",
+                    level = VerdictLevel.SUCCESS
+                )
+            }
+            return SignalVerdict(
+                title = "Найден другой тон",
+                hint = "Обнаружен ${formatFrequencyLabel(detectedFrequencyHz)}, ожидался ${formatFrequencyLabel(expectedFrequencyHz)}. Проверьте частоту на ноутбуке.",
+                level = VerdictLevel.WARNING
+            )
+        }
+        return SignalVerdict(
+            title = "Запись проанализирована",
+            hint = "Доминирующая частота: ${formatFrequencyLabel(detectedFrequencyHz)}.",
+            level = VerdictLevel.NEUTRAL
+        )
+    }
+
+    fun formatTimer(elapsedSeconds: Double, totalSeconds: Int): String {
+        val total = totalSeconds.coerceAtLeast(0)
+        val elapsed = elapsedSeconds.coerceIn(0.0, total.toDouble()).toInt()
+        return String.format(
+            Locale.US,
+            "%02d:%02d / %02d:%02d",
+            elapsed / 60,
+            elapsed % 60,
+            total / 60,
+            total % 60
+        )
+    }
+
+    const val FREQUENCY_TOLERANCE_HZ = 300.0
+    const val MIN_USABLE_RMS_DBFS = -60.0
+
     /**
      * Canonical SN-015 test id. Windows shows this id; the user types the same
      * value on the phone so both WAV/JSON files can be matched without a network.

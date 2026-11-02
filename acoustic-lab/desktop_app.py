@@ -1,4 +1,4 @@
-"""desktop_app.py — SilentNetwork Acoustic Lab, Windows GUI (SN-015).
+"""desktop_app.py — SilentNetwork Acoustic Lab, Windows GUI (SN-016).
 
 Сценарий: Windows → динамик ноутбука → воздух → микрофон Android → WAV →
 анализ на Windows. Приложение не управляет телефоном по сети.
@@ -47,8 +47,21 @@ else:
     _DEPENDENCY_ERROR = None
 
 TOOL_NAME = "desktop_app.py"
-TASK_ID = "SN-015"
-WINDOW_TITLE = "SilentNetwork Acoustic Lab — SN-015"
+TASK_ID = "SN-016"
+WINDOW_TITLE = "SilentNetwork — Акустическая лаборатория"
+
+# Единая светлая палитра SilentNetwork (общая с Android-приложением).
+COLOR_BG = "#F4F6F9"
+COLOR_CARD = "#FFFFFF"
+COLOR_BORDER = "#DCE2EA"
+COLOR_TEXT = "#1F2937"
+COLOR_MUTED = "#6B7280"
+COLOR_ACCENT = "#2563EB"
+COLOR_ACCENT_HOVER = "#1D4ED8"
+COLOR_SUCCESS = "#15803D"
+COLOR_WARNING = "#B45309"
+COLOR_ERROR = "#B91C1C"
+COLOR_NEUTRAL_BG = "#F1F4F9"
 
 
 def prepare_tcl_environment() -> list[str]:
@@ -70,6 +83,90 @@ def prepare_tcl_environment() -> list[str]:
         os.environ[variable] = str(directory)
         applied.append(f"{variable}={directory}")
     return applied
+
+
+def _configure_style(root: Any) -> None:
+    """Спокойная светлая тема вместо стандартного серого Tkinter."""
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:  # pragma: no cover - зависит от платформы
+        pass
+
+    style.configure(".", background=COLOR_BG, foreground=COLOR_TEXT,
+                    font=("Segoe UI", 10))
+    style.configure("TFrame", background=COLOR_BG)
+    style.configure("Card.TFrame", background=COLOR_CARD)
+
+    style.configure("Title.TLabel", background=COLOR_BG, foreground=COLOR_TEXT,
+                    font=("Segoe UI", 20, "bold"))
+    style.configure("Subtitle.TLabel", background=COLOR_BG, foreground=COLOR_MUTED,
+                    font=("Segoe UI", 10))
+    style.configure("Section.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT,
+                    font=("Segoe UI", 13, "bold"))
+    style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT)
+    style.configure("CardMuted.TLabel", background=COLOR_CARD, foreground=COLOR_MUTED)
+    style.configure("Value.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT,
+                    font=("Segoe UI", 11, "bold"))
+    style.configure("Field.TLabel", background=COLOR_CARD, foreground=COLOR_MUTED,
+                    font=("Segoe UI", 9))
+
+    style.configure("TButton", padding=(10, 6), font=("Segoe UI", 10))
+    style.configure("Accent.TButton", background=COLOR_ACCENT, foreground="#FFFFFF",
+                    padding=(12, 8), font=("Segoe UI", 10, "bold"), borderwidth=0)
+    style.map(
+        "Accent.TButton",
+        background=[("active", COLOR_ACCENT_HOVER), ("disabled", "#C3CEDF")],
+        foreground=[("disabled", "#F1F4F9")],
+    )
+    style.configure("Danger.TButton", background=COLOR_ERROR, foreground="#FFFFFF",
+                    padding=(12, 8), font=("Segoe UI", 10, "bold"), borderwidth=0)
+    style.map(
+        "Danger.TButton",
+        background=[("active", "#991B1B"), ("disabled", "#E3B7B7")],
+        foreground=[("disabled", "#FDF2F2")],
+    )
+    style.configure("Secondary.TButton", background="#EEF2F7", foreground=COLOR_TEXT,
+                    padding=(10, 6), borderwidth=0)
+    style.map(
+        "Secondary.TButton",
+        background=[("active", "#E2E8F0"), ("disabled", "#F3F5F8")],
+        foreground=[("disabled", "#A0AAB8")],
+    )
+    style.configure("Link.TButton", background=COLOR_CARD, foreground=COLOR_ACCENT,
+                    padding=(0, 4), borderwidth=0, font=("Segoe UI", 10, "bold"))
+    style.map("Link.TButton", background=[("active", COLOR_CARD)],
+              foreground=[("active", COLOR_ACCENT_HOVER)])
+
+    style.configure("TEntry", fieldbackground="#FFFFFF", foreground=COLOR_TEXT,
+                    bordercolor=COLOR_BORDER, lightcolor=COLOR_BORDER,
+                    darkcolor=COLOR_BORDER, padding=4)
+    style.configure("TCombobox", fieldbackground="#FFFFFF", background="#FFFFFF",
+                    foreground=COLOR_TEXT, bordercolor=COLOR_BORDER,
+                    arrowcolor=COLOR_MUTED, padding=4)
+    style.map("TCombobox", fieldbackground=[("readonly", "#FFFFFF")],
+              foreground=[("readonly", COLOR_TEXT)])
+
+    style.configure("Treeview", background="#FFFFFF", fieldbackground="#FFFFFF",
+                    foreground=COLOR_TEXT, rowheight=26, borderwidth=0)
+    style.configure("Treeview.Heading", background="#F0F3F8", foreground=COLOR_MUTED,
+                    font=("Segoe UI", 9, "bold"), borderwidth=0, padding=4)
+    style.map("Treeview", background=[("selected", "#DBEAFE")],
+              foreground=[("selected", COLOR_TEXT)])
+
+    style.configure(
+        "Vertical.TScrollbar",
+        background="#C7D2E0",
+        troughcolor=COLOR_BG,
+        bordercolor=COLOR_BG,
+        arrowcolor=COLOR_MUTED,
+        relief="flat",
+        arrowsize=12,
+    )
+    style.map(
+        "Vertical.TScrollbar",
+        background=[("active", "#AEBCCD"), ("pressed", "#9AAABF")],
+    )
 
 
 class DesktopApp:
@@ -115,7 +212,9 @@ class DesktopApp:
         self._playback_thread: threading.Thread | None = None
         self._playback_queue: queue.Queue[tuple[str, Any]] | None = None
         self._spectrogram_image: Any | None = None
+        self._device_panel_open = False
 
+        _configure_style(root)
         self._build_ui()
         self._update_playback_state()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -124,95 +223,220 @@ class DesktopApp:
 
     def _build_ui(self) -> None:
         self.root.title(WINDOW_TITLE)
+        self.root.configure(background=COLOR_BG)
         self.root.geometry("1220x900")
-        self.root.minsize(1_080, 760)
+        self.root.minsize(1_020, 720)
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=3)
-        self.root.rowconfigure(3, weight=2)
+        self.root.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(self.root, padding=(10, 8, 10, 2))
+        self._build_header()
+        self._build_content()
+        self._build_footer()
+
+    # ---------------------------------------------------------------- header
+
+    def _build_header(self) -> None:
+        header = ttk.Frame(self.root, padding=(18, 14, 18, 8))
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
+
+        titles = ttk.Frame(header)
+        titles.grid(row=0, column=0, sticky="w")
+        ttk.Label(titles, text="SilentNetwork", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
-            header,
-            text="SilentNetwork Acoustic Lab",
-            font=("Segoe UI", 16, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        mode_text = (
-            "HARDWARE TEST: PLAY разрешён только вручную, с подтверждением"
-            if self.hardware_test
-            else "FILE-ONLY: WAV и анализ без звука; PLAY отключён"
-        )
-        ttk.Label(
+            titles,
+            text="Акустическая лаборатория · передача данных через звук",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(1, 0))
+
+        if self.hardware_test:
+            mode_text = "Тестовый режим"
+            mode_bg, mode_fg = "#FFF4E5", COLOR_WARNING
+        else:
+            mode_text = "Только файлы"
+            mode_bg, mode_fg = "#E8F5EC", COLOR_SUCCESS
+        tk.Label(
             header,
             text=mode_text,
-            foreground="#8a4b00" if self.hardware_test else "#1f5f2a",
-            font=("Segoe UI", 10, "bold"),
-        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+            background=mode_bg,
+            foreground=mode_fg,
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=5,
+        ).grid(row=0, column=1, sticky="e")
 
-        scenario = ttk.LabelFrame(
-            self.root,
-            text="Сценарий LAPTOP → PHONE (без сетевого управления телефоном)",
-            padding=(8, 4),
+    # --------------------------------------------------------------- content
+
+    def _build_content(self) -> None:
+        shell = ttk.Frame(self.root, padding=(14, 6, 14, 6))
+        shell.grid(row=1, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        # Прокручиваемая область: при раскрытии «Подробнее» карточка анализа
+        # становится выше окна, и без прокрутки нижние элементы были бы
+        # недоступны.
+        self.content_canvas = tk.Canvas(
+            shell,
+            background=COLOR_BG,
+            highlightthickness=0,
+            borderwidth=0,
         )
-        scenario.grid(row=1, column=0, sticky="ew", padx=10, pady=(4, 2))
-        ttk.Label(
-            scenario,
-            text=(
-                "1) Android: начать запись на 10 с.   "
-                "2) Windows: создать WAV и выбрать динамик.   "
-                "3) Нажать PLAY и подтвердить.\n"
-                "4) Ноутбук воспроизводит 3 с тона.   "
-                "5) Android сохраняет запись.   "
-                "6) Экспортировать WAV и импортировать его ниже."
-            ),
+        self.content_canvas.grid(row=0, column=0, sticky="nsew")
+        self.content_scroll = ttk.Scrollbar(
+            shell, orient="vertical", command=self.content_canvas.yview
+        )
+        self.content_scroll.grid(row=0, column=1, sticky="ns")
+        self.content_scroll.grid_remove()
+        self.content_canvas.configure(yscrollcommand=self._on_content_scroll)
+
+        content = ttk.Frame(self.content_canvas)
+        self._content_window = self.content_canvas.create_window(
+            (0, 0), window=content, anchor="nw"
+        )
+        content.columnconfigure(0, weight=1, uniform="card")
+        content.columnconfigure(1, weight=1, uniform="card")
+        content.rowconfigure(0, weight=1)
+
+        content.bind("<Configure>", self._sync_content_scroll)
+        self.content_canvas.bind("<Configure>", self._sync_content_scroll)
+        self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
+        self._content_frame = content
+
+        left = ttk.Frame(content)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(1, weight=1)
+
+        right = ttk.Frame(content)
+        right.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=1)
+
+        self._build_device_section(left)
+        self._build_generator_section(left)
+        self._build_phone_section(right)
+
+    def _on_content_scroll(self, first: str, last: str) -> None:
+        self.content_scroll.set(first, last)
+        fits = float(first) <= 0.0 and float(last) >= 1.0
+        if fits:
+            if self.content_scroll.winfo_ismapped():
+                self.content_scroll.grid_remove()
+            self.content_canvas.yview_moveto(0.0)
+        elif not self.content_scroll.winfo_ismapped():
+            self.content_scroll.grid()
+
+    def _sync_content_scroll(self, _event: Any | None = None) -> None:
+        canvas = self.content_canvas
+        if not canvas.winfo_exists():
+            return
+        width = canvas.winfo_width()
+        if self.content_scroll.winfo_ismapped():
+            width -= self.content_scroll.winfo_reqwidth()
+        width = max(1, width)
+        needed = self._content_frame.winfo_reqheight()
+        height = max(needed, canvas.winfo_height())
+        canvas.itemconfigure(self._content_window, width=width, height=height)
+        canvas.configure(scrollregion=(0, 0, width, height))
+        if needed > canvas.winfo_height():
+            if not self.content_scroll.winfo_ismapped():
+                self.content_scroll.grid()
+        elif self.content_scroll.winfo_ismapped():
+            self.content_scroll.grid_remove()
+            canvas.yview_moveto(0.0)
+
+    def _request_content_sync(self) -> None:
+        """Пересчитать прокрутку после изменения высоты содержимого.
+
+        Сначала нужно дать Tk пересчитать запрошенные размеры после pack/grid,
+        а затем применить новую область прокрутки.
+        """
+
+        def _run() -> None:
+            if not self.root.winfo_exists():
+                return
+            self.root.update_idletasks()
+            self._sync_content_scroll()
+
+        self.root.after_idle(_run)
+
+    def _on_content_mousewheel(self, event: Any) -> None:
+        if not self.content_scroll.winfo_ismapped():
+            return
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        if widget is None or not str(widget).startswith(str(self.content_canvas)):
+            return
+        step = -1 if event.delta > 0 else 1
+        self.content_canvas.yview_scroll(step * 2, "units")
+
+    # ---------------------------------------------------------- device card
+
+    def _build_device_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Динамик ноутбука",
+            "Устройство, через которое прозвучит тестовый сигнал",
+        )
+        outer.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        body.columnconfigure(0, weight=1)
+
+        self.device_name_label = ttk.Label(
+            body, text="Устройство не выбрано", style="Value.TLabel"
+        )
+        self.device_name_label.grid(row=0, column=0, sticky="w", pady=(10, 0))
+
+        self.device_status = ttk.Label(
+            body,
+            text="Нажмите «Выбрать устройство», чтобы увидеть список динамиков.",
+            style="CardMuted.TLabel",
+            wraplength=460,
             justify="left",
-        ).pack(anchor="w")
+        )
+        self.device_status.grid(row=1, column=0, sticky="ew", pady=(2, 8))
 
-        body = ttk.Frame(self.root, padding=(10, 4))
-        body.grid(row=2, column=0, sticky="nsew")
-        body.rowconfigure(0, weight=1)
-        for column in range(3):
-            body.columnconfigure(column, weight=1, uniform="sections")
+        buttons = ttk.Frame(body, style="Card.TFrame")
+        buttons.grid(row=2, column=0, sticky="w")
+        self.device_toggle_button = ttk.Button(
+            buttons,
+            text="Выбрать устройство",
+            style="Secondary.TButton",
+            command=self._toggle_device_panel,
+        )
+        self.device_toggle_button.pack(side="left")
+        ttk.Button(
+            buttons,
+            text="Обновить список",
+            style="Secondary.TButton",
+            command=self.refresh_devices,
+        ).pack(side="left", padx=(6, 0))
 
-        self._build_device_section(body, column=0)
-        self._build_generator_section(body, column=1)
-        self._build_playback_section(body, column=2)
-        self._build_phone_section()
+        self.device_panel = tk.Frame(body, bg=COLOR_CARD)
+        self.device_panel.columnconfigure(0, weight=1)
 
-    def _build_device_section(self, parent: Any, column: int) -> None:
-        frame = ttk.LabelFrame(parent, text="A. OUTPUT DEVICE", padding=8)
-        frame.grid(row=0, column=column, sticky="nsew", padx=(0, 5))
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(1, weight=1)
-
-        ttk.Label(
-            frame,
-            text="Только выходные устройства. Ничего не выбирается автоматически.",
-            wraplength=300,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
-
-        tree_frame = ttk.Frame(frame)
-        tree_frame.grid(row=1, column=0, sticky="nsew")
+        tree_frame = tk.Frame(self.device_panel, bg=COLOR_CARD)
+        tree_frame.grid(row=0, column=0, sticky="nsew", pady=(10, 4))
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
+
         self.device_tree = ttk.Treeview(
             tree_frame,
-            columns=("idx", "name", "host", "out", "rate"),
+            columns=("idx", "name", "host", "rate"),
             show="headings",
-            height=10,
+            height=6,
             selectmode="browse",
         )
         headings = {
-            "idx": ("#", 35),
-            "name": ("Устройство", 190),
-            "host": ("Host API", 85),
-            "out": ("Out", 40),
-            "rate": ("Rate, Гц", 75),
+            "idx": ("#", 32),
+            "name": ("Устройство", 260),
+            "host": ("Драйвер", 90),
+            "rate": ("Гц", 60),
         }
         for key, (title, width) in headings.items():
             self.device_tree.heading(key, text=title)
-            self.device_tree.column(key, width=width, anchor="w", stretch=key == "name")
+            self.device_tree.column(
+                key, width=width, anchor="w", stretch=key == "name"
+            )
         self.device_tree.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(
             tree_frame, orient="vertical", command=self.device_tree.yview
@@ -221,31 +445,44 @@ class DesktopApp:
         self.device_tree.configure(yscrollcommand=scrollbar.set)
         self.device_tree.bind("<<TreeviewSelect>>", self._on_device_selected)
 
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=2, column=0, sticky="ew", pady=(6, 2))
+        info_buttons = ttk.Frame(self.device_panel, style="Card.TFrame")
+        info_buttons.grid(row=1, column=0, sticky="ew")
         ttk.Button(
-            buttons,
-            text="Обновить устройства",
-            command=self.refresh_devices,
-        ).pack(side="left")
-        ttk.Button(
-            buttons,
-            text="Проверить 48/44.1 кГц",
+            info_buttons,
+            text="Проверить 44.1 / 48 кГц",
+            style="Secondary.TButton",
             command=self.check_device_formats,
-        ).pack(side="left", padx=(5, 0))
+        ).pack(side="left")
+        ttk.Label(
+            info_buttons,
+            text="Драйвер и ID показаны только здесь.",
+            style="CardMuted.TLabel",
+        ).pack(side="left", padx=(8, 0))
 
-        self.device_status = ttk.Label(
-            frame,
-            text="Список не загружен. Нажмите «Обновить устройства».",
-            wraplength=330,
-            justify="left",
+    def _toggle_device_panel(self) -> None:
+        if self._device_panel_open:
+            self.device_panel.grid_forget()
+            self.device_toggle_button.configure(text="Выбрать устройство")
+            self._device_panel_open = False
+            self._request_content_sync()
+            return
+        self.device_panel.grid(row=3, column=0, sticky="nsew")
+        self.device_toggle_button.configure(text="Скрыть список")
+        self._device_panel_open = True
+        if not self.devices:
+            self.refresh_devices()
+        self._request_content_sync()
+
+    # ------------------------------------------------------- generator card
+
+    def _build_generator_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Отправить тестовый сигнал",
+            "Создайте WAV, затем воспроизведите его вручную",
         )
-        self.device_status.grid(row=3, column=0, sticky="ew", pady=(4, 0))
-
-    def _build_generator_section(self, parent: Any, column: int) -> None:
-        frame = ttk.LabelFrame(parent, text="B. TEST SIGNAL GENERATOR", padding=8)
-        frame.grid(row=0, column=column, sticky="nsew", padx=5)
-        frame.columnconfigure(1, weight=1)
+        outer.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(1, weight=1)
 
         self.frequency_var = tk.StringVar(value="1000")
         self.sample_rate_var = tk.StringVar(value="48000")
@@ -254,200 +491,285 @@ class DesktopApp:
         self.lead_var = tk.StringVar(value="500")
         self.tail_var = tk.StringVar(value="500")
 
-        rows = (
-            ("Частота, Гц", self.frequency_var, "combobox", [f"{v:g}" for v in desktop.FREQUENCY_CHOICES_HZ]),
-            ("Sample rate, Гц", self.sample_rate_var, "combobox", [str(v) for v in desktop.SAMPLE_RATE_CHOICES]),
-            ("Длительность, с", self.duration_var, "entry", None),
-            ("Амплитуда (0..1)", self.amplitude_var, "entry", None),
-            ("Тишина до, мс", self.lead_var, "entry", None),
-            ("Тишина после, мс", self.tail_var, "entry", None),
+        ttk.Label(body, text="Частота", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(12, 2), padx=(0, 10)
         )
-        for row, (label, variable, kind, values) in enumerate(rows):
-            ttk.Label(frame, text=label).grid(
-                row=row, column=0, sticky="w", pady=2, padx=(0, 6)
-            )
-            if kind == "combobox":
-                widget = ttk.Combobox(
-                    frame,
-                    textvariable=variable,
-                    values=values,
-                    state="readonly",
-                    width=12,
-                )
-            else:
-                widget = ttk.Entry(frame, textvariable=variable, width=14)
-            widget.grid(row=row, column=1, sticky="ew", pady=2)
+        ttk.Combobox(
+            body,
+            textvariable=self.frequency_var,
+            values=[f"{value:g}" for value in desktop.FREQUENCY_CHOICES_HZ],
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(12, 2))
 
-        ttk.Label(
-            frame,
-            text="PCM16 mono, косинусная рампа 5 мс. Генерация всегда беззвучна.",
-            wraplength=300,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        ttk.Label(body, text="Длительность, с", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(body, textvariable=self.duration_var).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
+
+        self.level_label = ttk.Label(
+            body, text="Уровень: 0.10 · безопасная амплитуда", style="CardMuted.TLabel"
+        )
+        self.level_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.amplitude_var.trace_add("write", self._update_level_label)
 
         ttk.Button(
-            frame,
-            text="Создать WAV (без звука)",
+            body,
+            text="Создать сигнал",
+            style="Accent.TButton",
             command=self.generate_wav,
-        ).grid(row=7, column=0, columnspan=2, sticky="ew", pady=(2, 6))
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 6))
 
         self.generated_info = ttk.Label(
-            frame,
-            text="WAV ещё не создан.",
-            wraplength=320,
+            body,
+            text="Сигнал ещё не создан.",
+            style="CardMuted.TLabel",
+            wraplength=460,
             justify="left",
         )
-        self.generated_info.grid(row=8, column=0, columnspan=2, sticky="ew")
-        ttk.Button(
-            frame,
-            text="Открыть папку результатов",
-            command=self.open_results_dir,
-        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-
-    def _build_playback_section(self, parent: Any, column: int) -> None:
-        frame = ttk.LabelFrame(parent, text="C. PLAYBACK", padding=8)
-        frame.grid(row=0, column=column, sticky="nsew", padx=(5, 0))
-        frame.columnconfigure(0, weight=1)
+        self.generated_info.grid(row=4, column=0, columnspan=2, sticky="ew")
 
         self.play_info = ttk.Label(
-            frame,
-            text="Тон не создан; устройство не выбрано.",
-            wraplength=320,
-            justify="left",
+            body, text="", style="Card.TLabel", wraplength=460, justify="left"
         )
-        self.play_info.grid(row=0, column=0, sticky="ew")
+        self.play_info.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=1, column=0, sticky="ew", pady=(8, 4))
-        buttons.columnconfigure(0, weight=1)
-        buttons.columnconfigure(1, weight=1)
+        play_row = ttk.Frame(body, style="Card.TFrame")
+        play_row.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        play_row.columnconfigure(0, weight=1)
+        play_row.columnconfigure(1, weight=1)
         self.play_button = ttk.Button(
-            buttons,
-            text="PLAY",
+            play_row,
+            text="Воспроизвести",
+            style="Accent.TButton",
             command=self.request_playback,
             state="disabled",
         )
-        self.play_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self.play_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.stop_button = ttk.Button(
-            buttons,
-            text="STOP",
+            play_row,
+            text="Стоп",
+            style="Danger.TButton",
             command=self.request_stop,
             state="disabled",
         )
-        self.stop_button.grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        self.stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         self.play_hint = ttk.Label(
-            frame,
-            text="",
-            wraplength=320,
-            justify="left",
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
         )
-        self.play_hint.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.play_hint.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
         self.playback_status = ttk.Label(
-            frame,
-            text="Воспроизведения не было.",
-            wraplength=320,
-            justify="left",
+            body, text="Воспроизведения не было.", style="Card.TLabel",
+            wraplength=460, justify="left",
         )
-        self.playback_status.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        self.playback_status.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
         self.playback_json_label = ttk.Label(
-            frame,
-            text="",
-            wraplength=320,
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.playback_json_label.grid(row=9, column=0, columnspan=2, sticky="ew")
+
+        advanced_holder, advanced = self._collapsible(
+            body, "Дополнительные настройки"
+        )
+        advanced_holder.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        advanced.columnconfigure(1, weight=1)
+
+        ttk.Label(advanced, text="Sample rate, Гц", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Combobox(
+            advanced,
+            textvariable=self.sample_rate_var,
+            values=[str(value) for value in desktop.SAMPLE_RATE_CHOICES],
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=2)
+
+        ttk.Label(advanced, text="Амплитуда (0…1)", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(advanced, textvariable=self.amplitude_var).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(advanced, text="Тишина до, мс", style="Field.TLabel").grid(
+            row=2, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(advanced, textvariable=self.lead_var).grid(
+            row=2, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(advanced, text="Тишина после, мс", style="Field.TLabel").grid(
+            row=3, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(advanced, textvariable=self.tail_var).grid(
+            row=3, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(
+            advanced,
+            text="PCM16 mono. Плавное начало и конец сигнала (косинусная рампа 5 мс).",
+            style="CardMuted.TLabel",
+            wraplength=440,
             justify="left",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 2))
+
+        ttk.Button(
+            advanced,
+            text="Открыть папку результатов",
+            style="Secondary.TButton",
+            command=self.open_results_dir,
+        ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+    def _update_level_label(self, *_args: Any) -> None:
+        text = self.amplitude_var.get().strip().replace(",", ".")
+        try:
+            amplitude = float(text)
+        except ValueError:
+            self.level_label.configure(text="Уровень: укажите число от 0 до 1")
+            return
+        if amplitude <= 0.10:
+            note = "безопасная амплитуда"
+        elif amplitude <= 0.30:
+            note = "умеренная амплитуда"
+        else:
+            note = "громко — начните с малой амплитуды"
+        self.level_label.configure(text=f"Уровень: {amplitude:g} · {note}")
+
+    # ----------------------------------------------------------- phone card
+
+    def _build_phone_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Проверить запись телефона",
+            "Импортируйте WAV, записанный телефоном во время теста",
         )
-        self.playback_json_label.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        outer.grid(row=0, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
 
-    def _build_phone_section(self) -> None:
-        frame = ttk.LabelFrame(
-            self.root,
-            text="D. PHONE WAV → ANALYSIS",
-            padding=(8, 6),
-        )
-        frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(4, 10))
-        frame.columnconfigure(0, weight=2)
-        frame.columnconfigure(1, weight=3)
-        frame.rowconfigure(0, weight=1)
-
-        left = ttk.Frame(frame)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        left.columnconfigure(0, weight=1)
-        left.rowconfigure(4, weight=1)
-
-        expected_row = ttk.Frame(left)
-        expected_row.grid(row=0, column=0, sticky="ew")
+        expected_row = ttk.Frame(body, style="Card.TFrame")
+        expected_row.grid(row=0, column=0, sticky="ew", pady=(12, 0))
         expected_row.columnconfigure(1, weight=1)
-        ttk.Label(expected_row, text="Expected frequency, Гц:").grid(
-            row=0, column=0, sticky="w"
-        )
+        ttk.Label(
+            expected_row, text="Ожидаемая частота, Гц", style="Field.TLabel"
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.expected_var = tk.StringVar(value="1000")
-        ttk.Entry(expected_row, textvariable=self.expected_var, width=12).grid(
-            row=0, column=1, sticky="w", padx=(6, 0)
+        ttk.Entry(expected_row, textvariable=self.expected_var, width=10).grid(
+            row=0, column=1, sticky="w"
         )
+        ttk.Label(
+            expected_row,
+            text="заполняется после создания сигнала",
+            style="CardMuted.TLabel",
+        ).grid(row=0, column=2, sticky="e")
 
-        buttons = ttk.Frame(left)
-        buttons.grid(row=1, column=0, sticky="ew", pady=(6, 2))
         ttk.Button(
-            buttons,
-            text="Импорт WAV с телефона",
+            body,
+            text="Открыть WAV-запись",
+            style="Accent.TButton",
             command=self.import_phone_wav,
-        ).pack(side="left")
-        ttk.Button(
-            buttons,
-            text="Повторить анализ",
-            command=self.analyze_current_phone,
-        ).pack(side="left", padx=(5, 0))
+        ).grid(row=1, column=0, sticky="ew", pady=(10, 6))
 
         self.phone_status = ttk.Label(
-            left,
+            body,
             text="WAV телефона не импортирован.",
-            wraplength=420,
+            style="CardMuted.TLabel",
+            wraplength=500,
             justify="left",
         )
-        self.phone_status.grid(row=2, column=0, sticky="ew", pady=(2, 4))
+        self.phone_status.grid(row=2, column=0, sticky="ew")
 
-        ttk.Label(left, text="PSD (канал 0)").grid(row=3, column=0, sticky="w")
+        self.verdict_panel = tk.Frame(body, bg=COLOR_NEUTRAL_BG)
+        self.verdict_panel.grid(row=3, column=0, sticky="ew", pady=(10, 8))
+        self.verdict_panel.columnconfigure(0, weight=1)
+        self.verdict_label = tk.Label(
+            self.verdict_panel,
+            text="Результат появится после импорта",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+            padx=14,
+            pady=10,
+        )
+        self.verdict_label.grid(row=0, column=0, sticky="ew")
+        self.verdict_hint = tk.Label(
+            self.verdict_panel,
+            text="Здесь будет короткое пояснение к записи.",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=470,
+            padx=14,
+            pady=0,
+        )
+        self.verdict_hint.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        metrics = tk.Frame(body, bg=COLOR_CARD)
+        metrics.grid(row=4, column=0, sticky="ew")
+        for column in range(2):
+            metrics.columnconfigure(column, weight=1, uniform="metric")
+
+        self.metric_expected = self._metric_tile(
+            metrics, 0, 0, "Ожидаемая частота", "—"
+        )
+        self.metric_detected = self._metric_tile(
+            metrics, 0, 1, "Обнаруженная частота", "—"
+        )
+        self.metric_level = self._metric_tile(
+            metrics, 1, 0, "Уровень сигнала", "—"
+        )
+        self.metric_clipping = self._metric_tile(
+            metrics, 1, 1, "Перегрузка", "—"
+        )
+
+        spectrum_header = ttk.Frame(body, style="Card.TFrame")
+        spectrum_header.grid(row=5, column=0, sticky="ew", pady=(10, 2))
+        spectrum_header.columnconfigure(0, weight=1)
+        ttk.Label(spectrum_header, text="Спектр", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            spectrum_header,
+            text="канал 0 · уровень в дБ",
+            style="CardMuted.TLabel",
+        ).grid(row=0, column=1, sticky="e")
+
         self.psd_canvas = tk.Canvas(
-            left,
-            height=170,
-            background="white",
+            body,
+            height=150,
+            background="#FFFFFF",
             highlightthickness=1,
-            highlightbackground="#b0b0b0",
+            highlightbackground=COLOR_BORDER,
         )
-        self.psd_canvas.grid(row=4, column=0, sticky="nsew", pady=(2, 4))
+        self.psd_canvas.grid(row=6, column=0, sticky="ew")
 
-        self.spectrogram_label = ttk.Label(
-            left,
-            text="Спектрограмма ещё не построена.",
-            anchor="center",
-        )
-        self.spectrogram_label.grid(row=5, column=0, sticky="ew")
+        details_holder, details = self._collapsible(body, "Подробнее")
+        details_holder.grid(row=7, column=0, sticky="ew", pady=(8, 0))
+        details.columnconfigure(0, weight=1)
 
-        open_buttons = ttk.Frame(left)
-        open_buttons.grid(row=6, column=0, sticky="ew", pady=(4, 0))
-        ttk.Button(
-            open_buttons,
-            text="Открыть PSD PNG",
-            command=lambda: self.open_png(self.phone_record.psd_path if self.phone_record else None),
-        ).pack(side="left")
-        ttk.Button(
-            open_buttons,
-            text="Открыть спектрограмму",
-            command=lambda: self.open_png(
-                self.phone_record.spectrogram_path if self.phone_record else None
-            ),
-        ).pack(side="left", padx=(5, 0))
-
-        text_frame = ttk.Frame(frame)
-        text_frame.grid(row=0, column=1, sticky="nsew")
+        text_frame = tk.Frame(details, bg=COLOR_CARD)
+        text_frame.grid(row=0, column=0, sticky="ew")
         text_frame.columnconfigure(0, weight=1)
-        text_frame.rowconfigure(0, weight=1)
         self.analysis_text = tk.Text(
             text_frame,
             wrap="word",
-            height=18,
+            height=10,
             font=("Consolas", 9),
+            background="#FFFFFF",
+            foreground=COLOR_TEXT,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            padx=8,
+            pady=6,
         )
-        self.analysis_text.grid(row=0, column=0, sticky="nsew")
+        self.analysis_text.grid(row=0, column=0, sticky="ew")
         text_scroll = ttk.Scrollbar(
             text_frame, orient="vertical", command=self.analysis_text.yview
         )
@@ -456,15 +778,142 @@ class DesktopApp:
         self.analysis_text.insert(
             "1.0",
             "Импортируйте WAV с телефона: здесь появятся уровни, доминирующая "
-            "частота, полоса 18–19 кГц и Expected frequency vs Detected frequency.\n\n"
-            "SNR одиночной записи будет показан как N/A.",
+            "частота, полоса 18–19 кГц и сравнение ожидаемой и обнаруженной "
+            "частоты.\n\nSNR одиночной записи показан как N/A.",
         )
         self.analysis_text.configure(state="disabled")
+
+        detail_buttons = ttk.Frame(details, style="Card.TFrame")
+        detail_buttons.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        ttk.Button(
+            detail_buttons,
+            text="Повторить анализ",
+            style="Secondary.TButton",
+            command=self.analyze_current_phone,
+        ).pack(side="left")
+        ttk.Button(
+            detail_buttons,
+            text="Открыть PSD",
+            style="Secondary.TButton",
+            command=lambda: self.open_png(
+                self.phone_record.psd_path if self.phone_record else None
+            ),
+        ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            detail_buttons,
+            text="Открыть спектрограмму",
+            style="Secondary.TButton",
+            command=lambda: self.open_png(
+                self.phone_record.spectrogram_path if self.phone_record else None
+            ),
+        ).pack(side="left", padx=(6, 0))
+
+        self.spectrogram_label = ttk.Label(
+            details,
+            text="Спектрограмма ещё не построена.",
+            style="CardMuted.TLabel",
+            anchor="center",
+        )
+        self.spectrogram_label.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
+    def _metric_tile(
+        self, parent: Any, row: int, column: int, title: str, value: str
+    ) -> Any:
+        tile = tk.Frame(parent, bg=COLOR_NEUTRAL_BG)
+        tile.grid(
+            row=row,
+            column=column,
+            sticky="nsew",
+            padx=(0, 4) if column == 0 else (4, 0),
+            pady=(0, 8),
+        )
+        tk.Label(
+            tile,
+            text=title,
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).pack(anchor="w", padx=10, pady=(7, 0))
+        value_label = tk.Label(
+            tile,
+            text=value,
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_TEXT,
+            font=("Segoe UI", 12, "bold"),
+            anchor="w",
+        )
+        value_label.pack(anchor="w", padx=10, pady=(0, 7))
+        return value_label
+
+    def _card(
+        self, parent: Any, title: str, subtitle: str | None = None
+    ) -> tuple[Any, Any]:
+        outer = tk.Frame(
+            parent,
+            background=COLOR_CARD,
+            highlightbackground=COLOR_BORDER,
+            highlightthickness=1,
+        )
+        body = tk.Frame(outer, background=COLOR_CARD)
+        body.pack(fill="both", expand=True, padx=16, pady=14)
+        ttk.Label(body, text=title, style="Section.TLabel").pack(anchor="w")
+        if subtitle:
+            ttk.Label(
+                body, text=subtitle, style="CardMuted.TLabel",
+                wraplength=500, justify="left",
+            ).pack(anchor="w", pady=(1, 0))
+        inner = tk.Frame(body, background=COLOR_CARD)
+        inner.pack(fill="both", expand=True, pady=(6, 0))
+        return outer, inner
+
+    def _collapsible(self, parent: Any, title: str) -> tuple[Any, Any]:
+        holder = tk.Frame(parent, background=COLOR_CARD)
+        content = tk.Frame(holder, background=COLOR_CARD)
+        button = ttk.Button(
+            holder,
+            text=f"▸ {title}",
+            style="Link.TButton",
+            command=lambda: _toggle(),
+        )
+        button.pack(anchor="w")
+
+        def _toggle() -> None:
+            if content.winfo_manager():
+                content.pack_forget()
+                button.configure(text=f"▸ {title}")
+            else:
+                content.pack(fill="both", expand=True, pady=(6, 0))
+                button.configure(text=f"▾ {title}")
+            self._request_content_sync()
+
+        holder._toggle = _toggle  # type: ignore[attr-defined]
+        return holder, content
+
+    # ---------------------------------------------------------------- footer
+
+    def _build_footer(self) -> None:
+        footer = ttk.Frame(self.root, padding=(18, 2, 18, 10))
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.columnconfigure(0, weight=1)
+        note = (
+            "Тестовый режим: воспроизведение запускается только вручную и после подтверждения."
+            if self.hardware_test
+            else "Безопасный режим: звук не воспроизводится, WAV создаётся беззвучно."
+        )
+        ttk.Label(footer, text=note, style="Subtitle.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            footer,
+            text=f"Результаты: {self.results_dir}",
+            style="Subtitle.TLabel",
+        ).grid(row=0, column=1, sticky="e")
 
     # ------------------------------------------------------------- devices
 
     def refresh_devices(self) -> None:
-        self.device_status.configure(text="Опрос устройств без открытия потоков...")
+        self.device_status.configure(text="Опрос устройств без открытия потоков…")
         self.root.update_idletasks()
         try:
             devices = self.device_lister()
@@ -484,18 +933,15 @@ class DesktopApp:
                     device.index,
                     device.name,
                     device.hostapi_name,
-                    device.max_output_channels,
                     f"{device.default_samplerate:g}",
                 ),
             )
         self.selected_device = None
+        self.device_name_label.configure(text="Устройство не выбрано")
         self._update_playback_state()
         if self.devices:
             self.device_status.configure(
-                text=(
-                    f"Найдено выходных устройств: {len(self.devices)}. "
-                    "Выберите динамик ноутбука вручную; по умолчанию ничего не выбрано."
-                )
+                text=f"Найдено динамиков: {len(self.devices)}. Выберите нужный в списке."
             )
         else:
             self.device_status.configure(
@@ -516,11 +962,11 @@ class DesktopApp:
         for device in self.devices:
             if device.index == index:
                 self.selected_device = device
+                self.device_name_label.configure(text=device.name)
                 self.device_status.configure(
                     text=(
-                        f"Выбрано: [{device.index}] {device.name} "
-                        f"({device.hostapi_name}); out={device.max_output_channels}; "
-                        f"driver rate={device.default_samplerate:g} Гц"
+                        f"Доступен · драйвер {device.hostapi_name} · "
+                        f"{device.default_samplerate:g} Гц"
                     )
                 )
                 break
@@ -531,7 +977,7 @@ class DesktopApp:
             self.device_status.configure(text="Сначала выберите устройство в списке.")
             return
         self.device_status.configure(
-            text="Проверка PCM16 mono 48000/44100 Гц через драйвер (поток не открывается)..."
+            text="Проверка PCM16 mono 48 000 / 44 100 Гц через драйвер…"
         )
         self.root.update_idletasks()
         try:
@@ -544,9 +990,9 @@ class DesktopApp:
         lines = []
         for rate, entry in result.items():
             if entry["supported"]:
-                lines.append(f"{rate} Гц: поддерживается")
+                lines.append(f"{rate} Гц: да")
             else:
-                lines.append(f"{rate} Гц: НЕТ ({entry['error']})")
+                lines.append(f"{rate} Гц: нет")
         self.device_status.configure(text="; ".join(lines))
 
     # ----------------------------------------------------------- generator
@@ -574,7 +1020,7 @@ class DesktopApp:
         try:
             settings = self._read_settings()
         except (desktop.ToneSettingsError, ValueError) as exc:
-            messagebox.showerror("Параметры тона", str(exc), parent=self.root)
+            messagebox.showerror("Параметры сигнала", str(exc), parent=self.root)
             return
         try:
             tone = desktop.generate_tone(settings, self.results_dir)
@@ -589,15 +1035,14 @@ class DesktopApp:
         self.expected_var.set(f"{tone.frequency_hz:g}")
         self.generated_info.configure(
             text=(
-                f"WAV: {tone.wav_path}\n"
-                f"JSON: {tone.metadata_path}\n"
-                f"{tone.frequency_hz:g} Гц, {settings.sample_rate} Гц, "
-                f"{settings.duration_s:g} с, амплитуда {settings.amplitude:g}; "
-                f"SHA-256 {tone.sha256[:16]}…"
+                f"Готово: {tone.frequency_hz:g} Гц · "
+                f"{tone.settings.duration_s:g} с · "
+                f"{tone.settings.sample_rate} Гц\n"
+                f"Файл: {tone.wav_path.name}"
             )
         )
         self.playback_status.configure(
-            text="WAV создан беззвучно. PLAY не выполнялся."
+            text="Сигнал создан беззвучно. Воспроизведение не выполнялось."
         )
         self.playback_json_label.configure(text="")
         self._update_playback_state()
@@ -608,20 +1053,13 @@ class DesktopApp:
         tone = self.generated
         device = self.selected_device
         if tone is None:
-            self.play_info.configure(text="Тон не создан; устройство не выбрано.")
+            self.play_info.configure(text="")
         else:
-            device_text = (
-                "не выбрано"
-                if device is None
-                else f"[{device.index}] {device.name} ({device.hostapi_name})"
-            )
             self.play_info.configure(
                 text=(
-                    f"Тон: {tone.frequency_hz:g} Гц; "
-                    f"длительность {tone.settings.duration_s:g} с; "
-                    f"амплитуда {tone.settings.amplitude:g}\n"
-                    f"Устройство: {device_text}\n"
-                    f"WAV: {tone.wav_path.name}"
+                    f"{tone.frequency_hz:g} Гц · "
+                    f"{tone.settings.duration_s:g} с · "
+                    f"амплитуда {tone.settings.amplitude:g}"
                 )
             )
         allowed = (
@@ -635,28 +1073,27 @@ class DesktopApp:
             state="normal" if self._playing and self.engine is not None else "disabled"
         )
         if not self.hardware_test:
-            hint = "PLAY отключён: FILE-ONLY. Перезапустите с --hardware-test."
+            hint = "Воспроизведение отключено в безопасном режиме."
         elif tone is None:
-            hint = "PLAY недоступен: сначала создайте WAV."
+            hint = "Сначала создайте сигнал."
         elif device is None:
-            hint = "PLAY недоступен: выберите выходное устройство вручную."
+            hint = "Выберите динамик ноутбука."
         elif self._playing:
-            hint = "Идёт воспроизведение. STOP прерывает его и помечает как неполное."
+            hint = "Идёт воспроизведение. Кнопка «Стоп» прерывает его."
         else:
-            hint = "PLAY доступен: перед стартом будет запрошено подтверждение."
+            hint = "Перед стартом приложение попросит подтверждение."
         self.play_hint.configure(text=hint)
 
     def _ask_confirm(self, tone: Any, device: Any) -> bool:
         return bool(
             messagebox.askyesno(
-                "Подтверждение PLAY",
+                "Подтверждение воспроизведения",
                 (
-                    "Сейчас будет слышимый звук через выбранный динамик.\n\n"
+                    "Сейчас через выбранный динамик прозвучит тестовый сигнал.\n\n"
                     f"Частота: {tone.frequency_hz:g} Гц\n"
                     f"Длительность: {tone.settings.duration_s:g} с\n"
                     f"Амплитуда: {tone.settings.amplitude:g}\n"
-                    f"Устройство: [{device.index}] {device.name}\n"
-                    f"Host API: {device.hostapi_name}\n\n"
+                    f"Устройство: {device.name}\n\n"
                     "Убедитесь, что телефон уже записывает. Продолжить?"
                 ),
                 parent=self.root,
@@ -667,14 +1104,14 @@ class DesktopApp:
     def request_playback(self) -> bool:
         if not self.hardware_test:
             self.playback_status.configure(
-                text="PLAY запрещён: приложение в FILE-ONLY. Нужен --hardware-test."
+                text="Воспроизведение недоступно: приложение работает без звука."
             )
             return False
         if self.generated is None:
-            self.playback_status.configure(text="Сначала создайте WAV.")
+            self.playback_status.configure(text="Сначала создайте сигнал.")
             return False
         if self.selected_device is None:
-            self.playback_status.configure(text="Сначала выберите выходное устройство.")
+            self.playback_status.configure(text="Сначала выберите динамик ноутбука.")
             return False
         if self._playing:
             self.playback_status.configure(text="Воспроизведение уже идёт.")
@@ -689,7 +1126,7 @@ class DesktopApp:
         device = self.selected_device
         self._playing = True
         self._playback_queue = queue.Queue()
-        self.playback_status.configure(text="Воспроизведение выполняется...")
+        self.playback_status.configure(text="Воспроизведение выполняется…")
         self.playback_json_label.configure(text="")
         self._update_playback_state()
 
@@ -753,16 +1190,14 @@ class DesktopApp:
     def request_stop(self) -> None:
         if self.engine is None or not self._playing:
             return
-        self.playback_status.configure(
-            text="STOP запрошен; ожидаю закрытия потока..."
-        )
+        self.playback_status.configure(text="Останавливаю воспроизведение…")
         self.engine.stop()
 
-    # ------------------------------------------------------------- phone
+    # --------------------------------------------------------------- phone
 
     def import_phone_wav(self) -> None:
         path = filedialog.askopenfilename(
-            title="Импорт WAV с телефона",
+            title="Открыть WAV-запись телефона",
             filetypes=(("WAV PCM16", "*.wav"), ("Все файлы", "*.*")),
             parent=self.root,
         )
@@ -774,6 +1209,9 @@ class DesktopApp:
     def analyze_current_phone(self) -> None:
         if self.phone_source is None:
             self.phone_status.configure(text="Сначала импортируйте WAV с телефона.")
+            self._set_verdict(
+                "Файл не выбран", "Нажмите «Открыть WAV-запись».", COLOR_MUTED
+            )
             return
         expected_text = self.expected_var.get().strip().replace(",", ".")
         expected: float | None = None
@@ -782,12 +1220,12 @@ class DesktopApp:
                 expected = float(expected_text)
             except ValueError:
                 messagebox.showerror(
-                    "Expected frequency",
+                    "Ожидаемая частота",
                     f"Ожидается число, получено {self.expected_var.get()!r}",
                     parent=self.root,
                 )
                 return
-        self.phone_status.configure(text="Анализ WAV...")
+        self.phone_status.configure(text="Анализ записи…")
         self.root.update_idletasks()
         try:
             record = self.analyzer(
@@ -799,6 +1237,11 @@ class DesktopApp:
             self.phone_status.configure(
                 text=f"Анализ не выполнен: {type(exc).__name__}: {exc}"
             )
+            self._set_verdict(
+                "Не удалось прочитать запись",
+                "Проверьте, что файл является WAV PCM16 и не повреждён.",
+                COLOR_ERROR,
+            )
             messagebox.showerror(
                 "Ошибка анализа WAV",
                 f"{type(exc).__name__}: {exc}",
@@ -807,19 +1250,115 @@ class DesktopApp:
             return
 
         self.phone_record = record
+        self._update_result_view(record)
         self.analysis_text.configure(state="normal")
         self.analysis_text.delete("1.0", "end")
         self.analysis_text.insert("1.0", desktop.format_phone_summary(record))
         self.analysis_text.configure(state="disabled")
         self.phone_status.configure(
-            text=(
-                f"Импортировано: {record.imported_path}\n"
-                f"JSON: {record.json_path}\n"
-                f"CSV: {record.csv_path}"
-            )
+            text=f"Проанализировано: {record.imported_path.name}"
         )
         self._draw_psd(record)
         self._show_spectrogram(record)
+
+    def _update_result_view(self, record: Any) -> None:
+        title, hint, color = self._classify_result(record)
+        self._set_verdict(title, hint, color)
+
+        expected = record.expected_frequency_hz
+        detected = record.detected_frequency_hz
+        level = record.analysis.channel_analyses[0].summary["level"]
+        clipping = record.analysis.channel_analyses[0].summary["clipping"]
+
+        self.metric_expected.configure(
+            text="не задана" if expected is None else f"{expected:g} Гц"
+        )
+        if detected is None:
+            self.metric_detected.configure(text="не найден")
+        else:
+            self.metric_detected.configure(text=f"{detected:.1f} Гц")
+        self.metric_level.configure(text=f"{level['rms_dbfs']:.1f} dBFS")
+        if clipping["detected"]:
+            self.metric_clipping.configure(
+                text=f"да · {clipping['clipped_samples']} отсч."
+            )
+        else:
+            self.metric_clipping.configure(text="нет")
+
+    def _classify_result(self, record: Any) -> tuple[str, str, str]:
+        """Короткий результат простым языком на основе фактического анализа."""
+        channel = record.analysis.channel_analyses[0]
+        level = channel.summary["level"]
+        clipping = channel.summary["clipping"]
+        rms = float(level["rms_dbfs"])
+        expected = record.expected_frequency_hz
+        detected = record.detected_frequency_hz
+        dominant = record.global_dominant_frequency_hz
+        margin = record.detection_margin_db
+
+        if clipping["detected"]:
+            return (
+                "Запись перегружена",
+                "Сигнал слишком громкий: часть отсчётов обрезана. "
+                "Уменьшите громкость и повторите тест.",
+                COLOR_WARNING,
+            )
+        if expected is not None:
+            if detected is None:
+                if dominant is not None and abs(dominant - expected) > 300.0:
+                    return (
+                        "Обнаружена другая частота",
+                        f"В записи есть сигнал около {dominant:.0f} Гц, "
+                        f"но ожидалась частота {expected:.0f} Гц.",
+                        COLOR_WARNING,
+                    )
+                return (
+                    "Сигнал не обнаружен",
+                    f"В записи нет уверенного пика около {expected:.0f} Гц.",
+                    COLOR_ERROR,
+                )
+            if rms < -45.0:
+                return (
+                    "Слабый сигнал",
+                    f"Частота совпадает, но уровень очень низкий "
+                    f"({rms:.1f} dBFS). Поднесите телефон ближе к динамику.",
+                    COLOR_WARNING,
+                )
+            if margin is not None and margin < 10.0:
+                return (
+                    "Слабый сигнал",
+                    "Пик едва выделяется над шумом. Проверьте громкость "
+                    "и расстояние.",
+                    COLOR_WARNING,
+                )
+            return (
+                "Сигнал обнаружен",
+                f"Пик около {detected:.1f} Гц уверенно выделяется над шумом.",
+                COLOR_SUCCESS,
+            )
+        if detected is None:
+            return (
+                "Сигнал не обнаружен",
+                "В записи нет выраженного спектрального пика.",
+                COLOR_ERROR,
+            )
+        if rms < -45.0:
+            return (
+                "Слабый сигнал",
+                f"Найден пик {detected:.1f} Гц, но уровень низкий "
+                f"({rms:.1f} dBFS).",
+                COLOR_WARNING,
+            )
+        return (
+            "Сигнал обнаружен",
+            f"Найден спектральный пик {detected:.1f} Гц.",
+            COLOR_SUCCESS,
+        )
+
+    def _set_verdict(self, title: str, hint: str, color: str) -> None:
+        self.verdict_label.configure(text=title, foreground=color)
+        self.verdict_hint.configure(text=hint)
+        self._request_content_sync()
 
     def _draw_psd(self, record: Any) -> None:
         try:
@@ -836,19 +1375,19 @@ class DesktopApp:
         psd = channel.psd
         if frequencies is None or psd is None or frequencies.size < 2:
             canvas.create_text(
-                10, 10, anchor="nw", text="PSD: недостаточно данных"
+                10, 10, anchor="nw", text="Недостаточно данных для спектра"
             )
             return
         canvas.update_idletasks()
         width = max(320, canvas.winfo_width())
-        height = max(120, canvas.winfo_height())
+        height = max(110, canvas.winfo_height())
         freqs = np.asarray(frequencies[1:], dtype=np.float64)
         density = np.asarray(psd[1:], dtype=np.float64)
         valid = (freqs > 0) & np.isfinite(density)
         freqs = freqs[valid]
         density = density[valid]
         if freqs.size < 2:
-            canvas.create_text(10, 10, anchor="nw", text="PSD: нет данных")
+            canvas.create_text(10, 10, anchor="nw", text="Нет данных для спектра")
             return
         db = 10.0 * np.log10(np.maximum(density, 1e-30))
         min_freq = max(20.0, float(freqs[0]))
@@ -876,29 +1415,32 @@ class DesktopApp:
 
         for value in (min_db, (min_db + max_db) / 2.0, max_db):
             y = y_of(value)
-            canvas.create_line(left, y, right, y, fill="#dddddd")
+            canvas.create_line(left, y, right, y, fill="#E5E9F0")
             canvas.create_text(
-                2, y, anchor="w", text=f"{value:.0f}", font=("Segoe UI", 7)
+                2, y, anchor="w", text=f"{value:.0f}", font=("Segoe UI", 7),
+                fill=COLOR_MUTED,
             )
         for freq in (100, 1_000, 10_000, 20_000):
             if min_freq <= freq <= max_freq:
                 x = x_of(float(freq))
-                canvas.create_line(x, top, x, bottom, fill="#eeeeee")
+                canvas.create_line(x, top, x, bottom, fill="#F0F3F8")
                 label = f"{freq // 1000}k" if freq >= 1_000 else f"{freq}"
                 canvas.create_text(
-                    x, height - 10, text=label, font=("Segoe UI", 7)
+                    x, height - 10, text=label, font=("Segoe UI", 7),
+                    fill=COLOR_MUTED,
                 )
         points: list[float] = []
         for freq, value in zip(freqs, db):
             points.extend((x_of(float(freq)), y_of(float(value))))
         if len(points) >= 4:
-            canvas.create_line(*points, fill="#1f5f9f", width=1)
+            canvas.create_line(*points, fill=COLOR_ACCENT, width=2)
         canvas.create_text(
             left + 4,
             top + 2,
             anchor="nw",
-            text=f"PSD: {record.imported_path.name}",
+            text=f"{record.imported_path.name}",
             font=("Segoe UI", 8, "bold"),
+            fill=COLOR_TEXT,
         )
 
     def _show_spectrogram(self, record: Any) -> None:
@@ -908,6 +1450,7 @@ class DesktopApp:
                 image="", text="Спектрограмма не создана."
             )
             self._spectrogram_image = None
+            self._request_content_sync()
             return
         try:
             image = tk.PhotoImage(file=str(path))
@@ -922,6 +1465,7 @@ class DesktopApp:
                 image="",
                 text=f"PNG сохранён: {path}",
             )
+        self._request_content_sync()
 
     def open_results_dir(self) -> None:
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -958,7 +1502,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=TOOL_NAME,
         description=(
-            "SilentNetwork Acoustic Lab: тестовый WAV, ручной PLAY через "
+            "SilentNetwork Acoustic Lab: тестовый WAV, ручное PLAY через "
             "выбранный динамик и анализ WAV с Android."
         ),
         epilog=(
