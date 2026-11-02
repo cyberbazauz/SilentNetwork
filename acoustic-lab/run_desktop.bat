@@ -2,9 +2,10 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-rem SilentNetwork Acoustic Lab SN-015 launcher.
-rem Default: FILE-ONLY GUI, no sound is played.
-rem Hardware playback: run_desktop.bat --hardware-test
+rem SilentNetwork Acoustic Lab SN-016 launcher.
+rem Default: light GUI, system speaker is selected automatically.
+rem Playback: PLAY after generating a signal and confirming the dialog.
+rem The --hardware-test flag is kept for compatibility and no longer required.
 rem Smoke test:          run_desktop.bat --smoke-test
 
 set "PYTHON=python"
@@ -32,18 +33,11 @@ if errorlevel 1 (
     echo [SN-015] Warning: matplotlib is missing; PSD and spectrogram PNG will be skipped.
 )
 
-if /i not "%~1"=="" (
-    echo %* | findstr /C:"--hardware-test" >nul
-    if not errorlevel 1 (
-        "%PYTHON%" -c "import sounddevice" >nul 2>nul
-        if errorlevel 1 (
-            echo [SN-015] sounddevice is required for --hardware-test.
-            echo         Run:
-            echo             "%PYTHON%" -m pip install -r requirements.txt
-            pause
-            exit /b 4
-        )
-    )
+"%PYTHON%" -c "import sounddevice" >nul 2>nul
+if errorlevel 1 (
+    echo [SN-016] Warning: sounddevice is missing; playback will be unavailable.
+    echo         Run:
+    echo             "%PYTHON%" -m pip install -r requirements.txt
 )
 
 "%PYTHON%" desktop_app.py %*

@@ -29,6 +29,7 @@ def make_device(
     name: str = "Speaker (Realtek(R) Audio)",
     output: int = 2,
     input_channels: int = 0,
+    default_output: bool = False,
 ) -> audio.DeviceInfo:
     return audio.DeviceInfo(
         index=index,
@@ -40,6 +41,7 @@ def make_device(
         default_samplerate=48_000.0,
         default_low_input_latency=0.01,
         default_low_output_latency=0.01,
+        is_default_output=default_output,
     )
 
 
@@ -606,7 +608,7 @@ def test_gui_starts_without_audio_and_play_disabled(tmp_path: Path) -> None:
         root.destroy()
 
 
-def test_gui_file_only_generation_has_no_playback(tmp_path: Path) -> None:
+def test_gui_file_only_generation_does_not_play_automatically(tmp_path: Path) -> None:
     engine = playback.FakePlaybackEngine()
     root, app = build_app(tmp_path, hardware_test=False, engine=engine)
     try:
@@ -617,8 +619,32 @@ def test_gui_file_only_generation_has_no_playback(tmp_path: Path) -> None:
         assert app.generated is not None
         assert app.generated.wav_path.is_file()
         assert engine.calls == []
-        assert app.play_button.instate(["disabled"])
+        assert app.play_button.instate(["!disabled"])
         assert list((tmp_path / "results").glob("*.playback-*.json")) == []
+    finally:
+        root.destroy()
+
+
+def test_gui_play_works_without_hardware_flag(tmp_path: Path) -> None:
+    engine = playback.FakePlaybackEngine()
+    root, app = build_app(tmp_path, hardware_test=False, engine=engine)
+    try:
+        app.duration_var.set("0.2")
+        app.generate_wav()
+
+        assert app.selected_device is not None
+        assert app.play_button.instate(["!disabled"])
+        assert app.request_playback() is True
+
+        deadline = time.monotonic() + 5.0
+        while app._playing and time.monotonic() < deadline:
+            root.update()
+            time.sleep(0.01)
+        root.update()
+
+        assert len(engine.calls) == 1
+        assert app.playback_status.cget("text").startswith("PLAY завершён")
+        assert list((tmp_path / "results").glob("*.playback-*.json"))
     finally:
         root.destroy()
 
@@ -675,7 +701,7 @@ def test_gui_play_cancelled_by_user_creates_no_json(tmp_path: Path) -> None:
         root.destroy()
 
 
-def test_gui_device_selection_is_never_automatic(tmp_path: Path) -> None:
+def test_gui_device_selection_is_automatic(tmp_path: Path) -> None:
     engine = playback.FakePlaybackEngine()
     root, app = build_app(tmp_path, hardware_test=True, engine=engine)
     try:
@@ -683,13 +709,36 @@ def test_gui_device_selection_is_never_automatic(tmp_path: Path) -> None:
         app.generate_wav()
         app.refresh_devices()
 
-        assert app.selected_device is None
-        assert app.play_button.instate(["disabled"])
-
-        select_first_device(app)
         assert app.selected_device is not None
         assert app.selected_device.index == 3
         assert app.play_button.instate(["!disabled"])
+
+        select_first_device(app)
+        assert app.selected_device.index == 3
+        assert app.play_button.instate(["!disabled"])
+    finally:
+        root.destroy()
+
+
+def test_gui_auto_selects_default_output(tmp_path: Path) -> None:
+    engine = playback.FakePlaybackEngine()
+    root = make_root()
+    app = desktop_app.DesktopApp(
+        root,
+        hardware_test=False,
+        results_dir=tmp_path / "results",
+        engine=engine,
+        device_lister=lambda: [
+            make_device(3, name="Speakers (Realtek(R) Audio)"),
+            make_device(7, name="Headphones", default_output=True),
+        ],
+        confirm_playback=lambda tone, device: True,
+    )
+    try:
+        assert app.selected_device is not None
+        assert app.selected_device.index == 7
+        assert app.selected_device.name == "Headphones"
+        assert app.device_name_label.cget("text") == "Headphones"
     finally:
         root.destroy()
 

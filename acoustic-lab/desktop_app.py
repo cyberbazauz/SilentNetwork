@@ -3,14 +3,14 @@
 Сценарий: Windows → динамик ноутбука → воздух → микрофон Android → WAV →
 анализ на Windows. Приложение не управляет телефоном по сети.
 
-Безопасный режим по умолчанию — FILE-ONLY: WAV создаётся беззвучно, PLAY
-отключён, аудиоустройства не открываются. Физическое воспроизведение
-разрешается только флагом `--hardware-test` и подтверждается перед каждым
-нажатием PLAY. Список устройств ничего не выбирает автоматически.
+При запуске автоматически выбирается системный динамик. PLAY доступен после
+создания сигнала и подтверждается перед каждым воспроизведением; системная
+громкость не меняется. Флаг `--hardware-test` оставлен для совместимости с
+прежними сценариями и больше не блокирует PLAY.
 
 Запуск:
-    python desktop_app.py                  # FILE-ONLY
-    python desktop_app.py --hardware-test  # разрешить ручной PLAY
+    python desktop_app.py                  # обычный запуск, PLAY после подтверждения
+    python desktop_app.py --hardware-test  # совместимый режим (то же поведение)
     python desktop_app.py --smoke-test     # проверить сборку GUI без звука
 """
 
@@ -176,7 +176,7 @@ class DesktopApp:
         self,
         root: Any,
         *,
-        hardware_test: bool = False,
+        hardware_test: bool = True,
         results_dir: str | Path | None = None,
         engine: Any | None = None,
         device_lister: Callable[[], list[Any]] | None = None,
@@ -197,7 +197,7 @@ class DesktopApp:
         self.engine = (
             engine
             if engine is not None
-            else (playback.SoundDevicePlaybackEngine() if self.hardware_test else None)
+            else (playback.SoundDevicePlaybackEngine() if playback is not None else None)
         )
         self.device_lister = device_lister or desktop.list_output_devices
         self.confirm_playback = confirm_playback or self._ask_confirm
@@ -217,6 +217,7 @@ class DesktopApp:
         _configure_style(root)
         self._build_ui()
         self._update_playback_state()
+        self.refresh_devices()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------ UI
@@ -249,12 +250,8 @@ class DesktopApp:
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(1, 0))
 
-        if self.hardware_test:
-            mode_text = "Тестовый режим"
-            mode_bg, mode_fg = "#FFF4E5", COLOR_WARNING
-        else:
-            mode_text = "Только файлы"
-            mode_bg, mode_fg = "#E8F5EC", COLOR_SUCCESS
+        mode_text = "Звук включён"
+        mode_bg, mode_fg = "#FFF4E5", COLOR_WARNING
         tk.Label(
             header,
             text=mode_text,
@@ -897,9 +894,7 @@ class DesktopApp:
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         note = (
-            "Тестовый режим: воспроизведение запускается только вручную и после подтверждения."
-            if self.hardware_test
-            else "Безопасный режим: звук не воспроизводится, WAV создаётся беззвучно."
+            "Звук: воспроизведение запускается только вручную и после подтверждения."
         )
         ttk.Label(footer, text=note, style="Subtitle.TLabel").grid(
             row=0, column=0, sticky="w"
@@ -940,8 +935,19 @@ class DesktopApp:
         self.device_name_label.configure(text="Устройство не выбрано")
         self._update_playback_state()
         if self.devices:
+            preferred = next(
+                (device for device in self.devices if getattr(device, "is_default_output", False)),
+                self.devices[0],
+            )
+            for item in self.device_tree.get_children():
+                values = self.device_tree.item(item, "values")
+                if values and str(values[0]) == str(preferred.index):
+                    self.device_tree.selection_set(item)
+                    self.device_tree.see(item)
+                    break
+            self._on_device_selected()
             self.device_status.configure(
-                text=f"Найдено динамиков: {len(self.devices)}. Выберите нужный в списке."
+                text=f"Найдено динамиков: {len(self.devices)}. Автовыбор: {preferred.name}."
             )
         else:
             self.device_status.configure(
@@ -1063,8 +1069,7 @@ class DesktopApp:
                 )
             )
         allowed = (
-            self.hardware_test
-            and tone is not None
+            tone is not None
             and device is not None
             and not self._playing
         )
@@ -1072,12 +1077,10 @@ class DesktopApp:
         self.stop_button.configure(
             state="normal" if self._playing and self.engine is not None else "disabled"
         )
-        if not self.hardware_test:
-            hint = "Воспроизведение отключено в безопасном режиме."
-        elif tone is None:
+        if tone is None:
             hint = "Сначала создайте сигнал."
         elif device is None:
-            hint = "Выберите динамик ноутбука."
+            hint = "Динамик не найден. Нажмите «Обновить список»."
         elif self._playing:
             hint = "Идёт воспроизведение. Кнопка «Стоп» прерывает его."
         else:
@@ -1102,16 +1105,16 @@ class DesktopApp:
         )
 
     def request_playback(self) -> bool:
-        if not self.hardware_test:
-            self.playback_status.configure(
-                text="Воспроизведение недоступно: приложение работает без звука."
-            )
-            return False
         if self.generated is None:
             self.playback_status.configure(text="Сначала создайте сигнал.")
             return False
         if self.selected_device is None:
             self.playback_status.configure(text="Сначала выберите динамик ноутбука.")
+            return False
+        if self.engine is None:
+            self.playback_status.configure(
+                text="Воспроизведение недоступно: аудиодвижок не загружен."
+            )
             return False
         if self._playing:
             self.playback_status.configure(text="Воспроизведение уже идёт.")
@@ -1506,15 +1509,15 @@ def build_parser() -> argparse.ArgumentParser:
             "выбранный динамик и анализ WAV с Android."
         ),
         epilog=(
-            "По умолчанию FILE-ONLY: звук не воспроизводится. "
-            "PLAY доступен только с --hardware-test и после подтверждения."
+            "При запуске автоматически выбирается системный динамик. "
+            "PLAY доступен после создания сигнала и требует подтверждения."
         ),
     )
     parser.add_argument(
         "--hardware-test",
         action="store_true",
         help=(
-            "РАЗРЕШИТЬ физический PLAY через явно выбранный динамик. "
+            "совместимый режим; PLAY уже доступен по умолчанию. "
             "Перед каждым PLAY запрашивается подтверждение."
         ),
     )
