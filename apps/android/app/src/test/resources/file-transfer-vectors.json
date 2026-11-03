@@ -1,0 +1,39 @@
+{
+  "schema": "silentnetwork.acoustic-lab.file-transfer-vectors/1",
+  "ft_version": 1,
+  "chunk_data_bytes": 54,
+  "max_file_bytes": 4096,
+  "max_filename_bytes": 40,
+  "vectors": [
+    {
+      "name": "manifest_note_txt",
+      "packet_type": "manifest",
+      "transfer_id": 7,
+      "seq": 0,
+      "total_chunks": 1,
+      "filename": "note.txt",
+      "file_size": 12,
+      "sha256": "4ae7c3b6ac0beff671efa8cf57386151c06e58ca53a78d83f36107316cec125f",
+      "packet_hex": "5346010107000000010e086e6f74652e7478740000000c36"
+    },
+    {
+      "name": "data_note_txt",
+      "packet_type": "data",
+      "transfer_id": 7,
+      "seq": 0,
+      "total_chunks": 1,
+      "payload_hex": "48656c6c6f2c20776f726c64",
+      "packet_hex": "5346010207000000010c48656c6c6f2c20776f726c64"
+    },
+    {
+      "name": "end_note_txt",
+      "packet_type": "end",
+      "transfer_id": 7,
+      "seq": 0,
+      "total_chunks": 1,
+      "file_size": 12,
+      "sha256": "4ae7c3b6ac0beff671efa8cf57386151c06e58ca53a78d83f36107316cec125f",
+      "packet_hex": "534601030700000001260000000c00014ae7c3b6ac0beff671efa8cf57386151c06e58ca53a78d83f36107316cec125f"
+    }
+  ]
+}

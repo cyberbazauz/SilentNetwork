@@ -2,6 +2,7 @@ package org.silentnetwork.app.audiolab.presentation
 
 import org.silentnetwork.app.audiolab.datalink.BfskProfile
 import org.silentnetwork.app.audiolab.datalink.DataLinkCodec
+import org.silentnetwork.app.audiolab.datalink.FileTransferCodec
 
 object DataLinkState {
     const val DEFAULT_PROFILE = "data-audible"
@@ -14,6 +15,9 @@ object DataLinkState {
 
     val RECEIVER_DURATIONS_SEC = listOf(5, 10, 15)
     const val DEFAULT_RECEIVER_DURATION_SEC = 10
+
+    val FILE_RECEIVER_DURATIONS_SEC = listOf(15, 30, 60)
+    const val DEFAULT_FILE_RECEIVER_DURATION_SEC = 30
 
     fun getProfile(name: String): BfskProfile {
         return BfskProfile.dataProfiles()[name] ?: BfskProfile.DATA_AUDIBLE
@@ -63,5 +67,79 @@ object DataLinkState {
             received.peakDbfs,
             received.clippedSamples
         )
+    }
+
+    fun fileVerdictTitle(result: FileTransferCodec.FileReceiveResult): String {
+        return if (result.ok) {
+            "Файл принят"
+        } else {
+            when (result.errorType) {
+                "signal_not_found" -> "Сигнал не найден"
+                "not_file_transfer" -> "Это не файловые пакеты"
+                "packet_invalid" -> "Нет корректных файловых пакетов"
+                "manifest_invalid" -> "Неверный MANIFEST"
+                "transfer_conflict" -> "Конфликт пакетов"
+                "incomplete_transfer" -> "Файл принят не полностью"
+                "hash_mismatch" -> "SHA-256 не совпал"
+                "output_error" -> "Не удалось сохранить файл"
+                "wav_format_error" -> "Неверный WAV"
+                "wav_not_found" -> "WAV не найден"
+                else -> "Приём файла не удался"
+            }
+        }
+    }
+
+    fun fileVerdictHint(result: FileTransferCodec.FileReceiveResult): String {
+        if (result.ok) {
+            return "Собраны все чанки, размер и SHA-256 совпали. " +
+                "SHA-256 не аутентифицирует отправителя."
+        }
+        return result.message.ifBlank {
+            "Проверьте расстояние, уровень громкости и профиль сигнала."
+        }
+    }
+
+    fun fileRecordingSummary(result: FileTransferCodec.FileReceiveResult): String {
+        return String.format(
+            java.util.Locale.US,
+            "WAV: %d Гц, %.2f с, RMS %.1f dBFS, пик %.1f dBFS, клиппинг: %d",
+            result.sampleRate,
+            result.durationS,
+            result.rmsDbfs,
+            result.peakDbfs,
+            result.clippedSamples
+        )
+    }
+
+    fun fileTransferSummary(result: FileTransferCodec.FileReceiveResult): String {
+        val state = result.state ?: return "Пакеты файла не собраны"
+        val lines = mutableListOf<String>()
+        lines.add(
+            String.format(
+                java.util.Locale.US,
+                "Кадров: %d · пакетов: %d · чанков: %d/%s",
+                result.stream.framesFound,
+                result.stream.packets.size,
+                state.chunksReceived,
+                state.totalChunks?.toString() ?: "?"
+            )
+        )
+        state.manifest?.let { manifest ->
+            lines.add("Файл: ${manifest.filename} · ${manifest.fileSize} байт")
+        }
+        if (state.duplicateChunks > 0) {
+            lines.add("Повторов чанков: ${state.duplicateChunks}")
+        }
+        if (state.missingChunks.isNotEmpty()) {
+            lines.add("Нет чанков: ${state.missingChunks.joinToString(", ")}")
+        }
+        result.actualSha256?.let { lines.add("SHA-256: $it") }
+        if (result.stream.frameFailures.isNotEmpty()) {
+            lines.add("Повреждённых кадров: ${result.stream.frameFailures.size}")
+        }
+        if (result.stream.packetErrors.isNotEmpty()) {
+            lines.add("Ошибочных пакетов: ${result.stream.packetErrors.size}")
+        }
+        return lines.joinToString("\n")
     }
 }

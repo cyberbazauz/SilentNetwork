@@ -119,6 +119,26 @@
     <string name="datalink_no_received_text">Текст не принят</string>
     <string name="datalink_setup_hint">Проверьте, что Windows и Android используют одинаковый профиль сигнала.</string>
 
+    <!-- File transfer -->
+    <string name="file_title">Файлы через звук</string>
+    <string name="file_desc">Приём одного файла 0…4096 байт: пакеты MANIFEST/DATA/END внутри Frame v1. Нет ACK, шифрования и AEAD. SHA-256 проверяет целостность, но не подтверждает отправителя.</string>
+    <string name="file_profile_label">Профиль сигнала для файла</string>
+    <string name="file_rx_duration_label">Длительность записи</string>
+    <string name="file_btn_record">Записать и принять файл</string>
+    <string name="file_btn_stop_record">Остановить запись</string>
+    <string name="file_btn_export_file">Сохранить файл</string>
+    <string name="file_btn_export_json">Сохранить отчёт</string>
+    <string name="file_rx_status_idle">Готово к записи файла</string>
+    <string name="file_info_idle">Принятый файл появится здесь</string>
+    <string name="file_metrics_idle">Параметры записи: --</string>
+    <string name="file_verdict_idle">Приём файла ещё не выполнялся</string>
+    <string name="file_verdict_hint_idle">Включите передачу файла на ноутбуке и запишите сигнал.</string>
+    <string name="file_record_started">Идёт запись файла…</string>
+    <string name="file_record_cancelled">Запись остановлена вручную. Файл не принят.</string>
+    <string name="file_record_saved">Запись сохранена, собираем файл…</string>
+    <string name="file_permission_needed">Для приёма файла требуется доступ к микрофону</string>
+    <string name="file_setup_hint">Файл передаётся открытым текстом. Не передавайте секреты и личные данные. Один удачный файл не доказывает устойчивую передачу через воздух.</string>
+
     <!-- Status -->
     <string name="status_title">SilentNetwork</string>
     <string name="status_subtitle">Передача данных через звук</string>

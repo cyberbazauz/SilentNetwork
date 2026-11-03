@@ -26,6 +26,7 @@ import org.silentnetwork.app.audiolab.audio.AudioPlayerEngine
 import org.silentnetwork.app.audiolab.audio.AudioRecorderEngine
 import org.silentnetwork.app.audiolab.datalink.BfskProfile
 import org.silentnetwork.app.audiolab.datalink.DataLinkCodec
+import org.silentnetwork.app.audiolab.datalink.FileTransferCodec
 import org.silentnetwork.app.audiolab.dsp.AudioAnalyzer
 import org.silentnetwork.app.audiolab.dsp.SignalGenerator
 import org.silentnetwork.app.audiolab.dsp.WavFileHandler
@@ -75,6 +76,13 @@ class AudioLabFragment : Fragment() {
     private var pendingDataLinkRecord = false
     private val dataLinkExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+    // File transfer receive state (SN-034 stage 3).
+    private var pendingFileRecord = false
+    private var fileRecordCancelled = false
+    private var lastReceivedFile: File? = null
+    private var lastFileReportJson: String? = null
+    private var fileArtifactLabel: String? = null
+
     // Document Pickers & Permission Launchers
     private val requestRecordPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -87,8 +95,13 @@ class AudioLabFragment : Fragment() {
                 pendingDataLinkRecord = false
                 startDataLinkRecording()
             }
+            if (pendingFileRecord) {
+                pendingFileRecord = false
+                startFileRecording()
+            }
         } else {
             pendingDataLinkRecord = false
+            pendingFileRecord = false
             setReceiverState(AudioLabState.ReceiverUiState.PERMISSION_REQUIRED)
             Toast.makeText(requireContext(), "Для записи тестового сигнала требуется разрешение", Toast.LENGTH_LONG).show()
         }
@@ -142,6 +155,26 @@ class AudioLabFragment : Fragment() {
         }
     }
 
+    private val createFileLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri != null && lastReceivedFile != null) {
+            exportFileToUri(
+                lastReceivedFile!!,
+                uri,
+                "Файл сохранён в выбранную папку"
+            )
+        }
+    }
+
+    private val createFileJsonLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null && lastFileReportJson != null) {
+            exportTextToUri(lastFileReportJson!!, uri, "Отчёт о файле сохранён")
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -158,6 +191,7 @@ class AudioLabFragment : Fragment() {
         setupReceiverSection()
         setupAnalyzerSection()
         setupDataLinkSection()
+        setupFileTransferSection()
         setupCollapsibleSections()
         checkHardwareEffects()
         checkMicPermissionStatus()
@@ -231,6 +265,9 @@ class AudioLabFragment : Fragment() {
 
         try {
             if (recorderEngine.isRecording) {
+                // Partial capture is not a file transfer: mark it as cancelled
+                // before the recorder thread can deliver onComplete.
+                fileRecordCancelled = true
                 recorderEngine.stop()
             }
         } catch (_: Throwable) {
@@ -241,6 +278,8 @@ class AudioLabFragment : Fragment() {
             binding.btnDatalinkStop.isEnabled = false
             binding.btnDatalinkRecord.isEnabled = true
             binding.btnDatalinkStopRecord.isEnabled = false
+            binding.btnFileRecord.isEnabled = true
+            binding.btnFileStopRecord.isEnabled = false
         }
     }
 
@@ -784,6 +823,244 @@ class AudioLabFragment : Fragment() {
     }
 
     // ==========================================
+    // SECTION A3: FILE TRANSFER RX (SN-034)
+    // ==========================================
+
+    private fun setupFileTransferSection() {
+        val profileLabels = DataLinkState.PROFILE_OPTIONS.map { (_, profile) ->
+            DataLinkState.profileLabel(profile)
+        }
+        binding.spinnerFileProfile.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            profileLabels
+        )
+        binding.spinnerFileProfile.setSelection(
+            DataLinkState.PROFILE_OPTIONS
+                .indexOfFirst { (name, _) -> name == DataLinkState.DEFAULT_PROFILE }
+                .coerceAtLeast(0)
+        )
+
+        val durationLabels = DataLinkState.FILE_RECEIVER_DURATIONS_SEC.map { "$it сек" }
+        binding.spinnerFileRxDuration.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            durationLabels
+        )
+        binding.spinnerFileRxDuration.setSelection(
+            DataLinkState.FILE_RECEIVER_DURATIONS_SEC
+                .indexOf(DataLinkState.DEFAULT_FILE_RECEIVER_DURATION_SEC)
+                .coerceAtLeast(0)
+        )
+
+        binding.btnFileRecord.setOnClickListener { requestFileRecording() }
+        binding.btnFileStopRecord.setOnClickListener {
+            // Ручная остановка — отмена записи, а не приём: частичный буфер
+            // не декодируется и файл не создаётся.
+            fileRecordCancelled = true
+            recorderEngine.stop()
+            binding.btnFileRecord.isEnabled = true
+            binding.btnFileStopRecord.isEnabled = false
+            binding.tvFileRxStatus.setText(R.string.file_record_cancelled)
+        }
+        binding.btnFileExportFile.setOnClickListener {
+            val file = lastReceivedFile
+            if (file == null) {
+                Toast.makeText(requireContext(), "Принятого файла ещё нет", Toast.LENGTH_SHORT).show()
+            } else {
+                createFileLauncher.launch(file.name)
+            }
+        }
+        binding.btnFileExportJson.setOnClickListener {
+            createFileJsonLauncher.launch(
+                fileArtifactLabel?.replace(".wav", "_report.json") ?: "file_transfer_report.json"
+            )
+        }
+    }
+
+    private fun selectedFileProfile(): BfskProfile {
+        val index = binding.spinnerFileProfile.selectedItemPosition.coerceAtLeast(0)
+        return DataLinkState.PROFILE_OPTIONS.getOrElse(index) {
+            DataLinkState.PROFILE_OPTIONS[0]
+        }.second
+    }
+
+    private fun requestFileRecording() {
+        if (!hasRecordAudioPermission()) {
+            pendingFileRecord = true
+            Toast.makeText(requireContext(), R.string.file_permission_needed, Toast.LENGTH_SHORT).show()
+            requestRecordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startFileRecording()
+    }
+
+    private fun startFileRecording() {
+        if (_binding == null) return
+        if (recorderEngine.isRecording) {
+            Toast.makeText(requireContext(), "Запись уже идёт", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (playerEngine.isPlaying) {
+            playerEngine.stop()
+        }
+
+        fileRecordCancelled = false
+        val profile = selectedFileProfile()
+        val durationIndex = binding.spinnerFileRxDuration.selectedItemPosition.coerceAtLeast(0)
+        val durationSec = DataLinkState.FILE_RECEIVER_DURATIONS_SEC[durationIndex]
+
+        binding.btnFileRecord.isEnabled = false
+        binding.btnFileStopRecord.isEnabled = true
+        binding.tvFileRxStatus.text = String.format(
+            Locale.US,
+            "Запись файла: 0.0 / %d с",
+            durationSec
+        )
+        binding.tvFileVerdict.setText(R.string.file_verdict_idle)
+        binding.tvFileVerdictHint.setText(R.string.file_verdict_hint_idle)
+        binding.tvFileVerdict.setTextColor(
+            ContextCompat.getColor(requireContext(), R.color.text_primary)
+        )
+        binding.tvFileInfo.setText(R.string.file_info_idle)
+        binding.tvFileMetrics.setText(R.string.file_metrics_idle)
+
+        val result = recorderEngine.startRecording(
+            sampleRate = profile.sampleRate,
+            durationSeconds = durationSec,
+            onProgress = { elapsed ->
+                mainHandler.post {
+                    _binding?.tvFileRxStatus?.text = String.format(
+                        Locale.US,
+                        "Запись файла: %.1f / %d с",
+                        elapsed,
+                        durationSec
+                    )
+                }
+            },
+            onComplete = { pcmData, actualRate ->
+                mainHandler.post {
+                    handleFileRecording(pcmData, actualRate, profile)
+                }
+            },
+            onError = { error ->
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.btnFileRecord.isEnabled = true
+                    binding.btnFileStopRecord.isEnabled = false
+                    binding.tvFileRxStatus.text =
+                        "Ошибка записи: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        )
+        if (result.isFailure) {
+            binding.btnFileRecord.isEnabled = true
+            binding.btnFileStopRecord.isEnabled = false
+            binding.tvFileRxStatus.text =
+                "Сбой запуска: ${result.exceptionOrNull()?.message}"
+        }
+    }
+
+    private fun handleFileRecording(
+        pcmData: ByteArray,
+        actualRate: Int,
+        profile: BfskProfile
+    ) {
+        if (_binding == null) return
+        binding.btnFileRecord.isEnabled = true
+        binding.btnFileStopRecord.isEnabled = false
+
+        if (fileRecordCancelled) {
+            fileRecordCancelled = false
+            binding.tvFileRxStatus.setText(R.string.file_record_cancelled)
+            return
+        }
+
+        if (pcmData.isEmpty()) {
+            binding.tvFileRxStatus.text = "Запись не содержит отсчётов"
+            return
+        }
+
+        binding.tvFileRxStatus.setText(R.string.file_record_saved)
+        val appContext = requireContext().applicationContext
+        val filename = "file_rx_${profile.name}.wav"
+        val outputDir = File(appContext.cacheDir, "received_files")
+
+        dataLinkExecutor.execute {
+            try {
+                val wavBytes = WavFileHandler.encodePcm16Wav(pcmData, actualRate, 1)
+                val file = File(appContext.cacheDir, filename)
+                file.writeBytes(wavBytes)
+                val wavSha256 = FileTransferCodec.sha256Hex(wavBytes)
+                val received = FileTransferCodec.decodeWavToFile(
+                    wavBytes,
+                    profile,
+                    outputDir,
+                    minPreambleMatches = DataLinkState.ACOUSTIC_MIN_PREAMBLE
+                )
+                val report = FileTransferCodec.buildReceiveReport(
+                    received,
+                    filename,
+                    wavSha256,
+                    minPreambleMatches = DataLinkState.ACOUSTIC_MIN_PREAMBLE
+                )
+                val receivedFile = received.outputPath?.let { File(it) }
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    lastReceivedFile = receivedFile
+                    lastFileReportJson = report
+                    fileArtifactLabel = filename
+                    binding.btnFileExportFile.isEnabled = receivedFile != null
+                    binding.btnFileExportJson.isEnabled = true
+                    binding.tvFileRxStatus.text = String.format(
+                        Locale.US,
+                        "Запись: %s · %d Гц",
+                        filename,
+                        actualRate
+                    )
+                    renderFileResult(received)
+                }
+            } catch (t: Throwable) {
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.tvFileRxStatus.text = "Ошибка обработки записи: ${t.message}"
+                }
+            }
+        }
+    }
+
+    private fun renderFileResult(result: FileTransferCodec.FileReceiveResult) {
+        binding.tvFileVerdict.text = DataLinkState.fileVerdictTitle(result)
+        binding.tvFileVerdictHint.text = DataLinkState.fileVerdictHint(result)
+        val color = when {
+            result.ok -> R.color.accent_emerald
+            result.errorType == "signal_not_found" -> R.color.accent_amber
+            result.errorType == "incomplete_transfer" -> R.color.accent_amber
+            else -> R.color.accent_rose
+        }
+        binding.tvFileVerdict.setTextColor(ContextCompat.getColor(requireContext(), color))
+
+        val info = buildString {
+            if (result.ok && result.filename != null) {
+                append("Файл: ${result.filename}\n")
+                append("Размер: ${result.content?.size ?: 0} байт\n")
+                append("SHA-256: ${result.actualSha256 ?: "--"}\n")
+                append("Сохранено: ${result.outputPath ?: "в память"}")
+            } else {
+                append(DataLinkState.fileTransferSummary(result))
+            }
+            if (result.conflicts.isNotEmpty()) {
+                append("\nКонфликты:\n")
+                for (conflict in result.conflicts.take(5)) {
+                    append("• $conflict\n")
+                }
+            }
+        }
+        binding.tvFileInfo.text = info.trimEnd()
+        binding.tvFileMetrics.text = DataLinkState.fileRecordingSummary(result)
+    }
+
+    // ==========================================
     // SECTION B: RECEIVER SETUP & ACTIONS
     // ==========================================
 
@@ -1216,14 +1493,18 @@ class AudioLabFragment : Fragment() {
     // EXPORT HELPERS
     // ==========================================
 
-    private fun exportFileToUri(sourceFile: File, destinationUri: Uri) {
+    private fun exportFileToUri(
+        sourceFile: File,
+        destinationUri: Uri,
+        successMessage: String = "WAV сохранён в выбранную папку"
+    ) {
         try {
             requireContext().contentResolver.openOutputStream(destinationUri)?.use { out ->
                 sourceFile.inputStream().use { inp ->
                     inp.copyTo(out)
                 }
             }
-            Toast.makeText(requireContext(), "WAV сохранён в выбранную папку", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), successMessage, Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
             Toast.makeText(requireContext(), "Ошибка экспорта: ${t.message}", Toast.LENGTH_LONG).show()
         }

@@ -106,16 +106,25 @@ object BfskDemodulator {
         return metric
     }
 
-    /** Find the preamble and refine the frame start. */
+    /**
+     * Find the preamble and refine the frame start.
+     *
+     * @param from absolute metric index to start searching from. The returned
+     *   [FrameStart.sample] is absolute. Used by the multi-frame file receiver
+     *   to resynchronise after a damaged frame without copying the metric.
+     */
     fun findFrameStart(
         metric: DoubleArray,
         profile: BfskProfile,
-        minPreambleMatches: Int = PREAMBLE_BITS
+        minPreambleMatches: Int = PREAMBLE_BITS,
+        from: Int = 0
     ): FrameStart {
         validateMinPreambleMatches(minPreambleMatches)
+        require(from in 0..metric.size) { "from вне диапазона метрики" }
         val symbolsPerBit = profile.samplesPerSymbol
         val span = PREAMBLE_BITS * symbolsPerBit
-        if (metric.size < span) {
+        val available = metric.size - from
+        if (available < span) {
             throw SignalNotFound("сигнала недостаточно для 32-битной преамбулы")
         }
 
@@ -123,19 +132,44 @@ object BfskDemodulator {
         var bestPhase = 0
         var bestIndex = 0
         for (phase in 0 until symbolsPerBit) {
-            val count = (metric.size - phase + symbolsPerBit - 1) / symbolsPerBit
+            val count = (available - phase + symbolsPerBit - 1) / symbolsPerBit
             if (count < PREAMBLE_BITS) continue
-            for (index in 0..(count - PREAMBLE_BITS)) {
-                var score = 0.0
-                for (position in 0 until PREAMBLE_BITS) {
-                    val value = metric[phase + (index + position) * symbolsPerBit]
-                    score += BfskModulator.sign(value) * PREAMBLE_PATTERN[position]
+
+            // Скользящая корреляция с 1010…: чётные и нечётные позиции
+            // окна из 32 символов. Обновление за O(1) вместо 32 сложений
+            // на каждое окно — иначе длинная запись декодируется слишком
+            // медленно на телефоне.
+            var even = 0.0
+            var odd = 0.0
+            for (position in 0 until PREAMBLE_BITS) {
+                val value = BfskModulator.sign(
+                    metric[from + phase + position * symbolsPerBit]
+                )
+                if (position % 2 == 0) even += value else odd += value
+            }
+            var localBestScore = even - odd
+            var localBestIndex = 0
+            for (index in 1..(count - PREAMBLE_BITS)) {
+                val leaving = BfskModulator.sign(
+                    metric[from + phase + (index - 1) * symbolsPerBit]
+                )
+                val entering = BfskModulator.sign(
+                    metric[from + phase + (index + PREAMBLE_BITS - 1) * symbolsPerBit]
+                )
+                val nextEven = odd
+                val nextOdd = even - leaving + entering
+                even = nextEven
+                odd = nextOdd
+                val score = even - odd
+                if (score > localBestScore) {
+                    localBestScore = score
+                    localBestIndex = index
                 }
-                if (score > bestScore) {
-                    bestScore = score
-                    bestPhase = phase
-                    bestIndex = index
-                }
+            }
+            if (localBestScore > bestScore) {
+                bestScore = localBestScore
+                bestPhase = phase
+                bestIndex = localBestIndex
             }
         }
 
@@ -148,22 +182,22 @@ object BfskDemodulator {
             )
         }
 
-        val coarse = bestPhase + bestIndex * symbolsPerBit
-        val low = maxOf(0, coarse - symbolsPerBit)
-        var high = minOf(coarse, metric.size - span)
+        val coarseRelative = bestPhase + bestIndex * symbolsPerBit
+        val low = maxOf(0, coarseRelative - symbolsPerBit)
+        var high = minOf(coarseRelative, available - span)
         if (high < low) high = low
 
-        var bestSample = coarse
+        var bestRelative = coarseRelative
         var bestResponse = Double.NEGATIVE_INFINITY
         for (sample in low..high) {
             var response = 0.0
             for (position in 0 until PREAMBLE_BITS) {
                 response += PREAMBLE_PATTERN[position] *
-                    metric[sample + position * symbolsPerBit]
+                    metric[from + sample + position * symbolsPerBit]
             }
             if (response > bestResponse) {
                 bestResponse = response
-                bestSample = sample
+                bestRelative = sample
             }
         }
 
@@ -171,7 +205,7 @@ object BfskDemodulator {
         // положительные значения: у преамбулы ровно 16 единиц из 32.
         var matches = 0
         for (position in 0 until PREAMBLE_BITS) {
-            val observed = metric[bestSample + position * symbolsPerBit] > 0.0
+            val observed = metric[from + bestRelative + position * symbolsPerBit] > 0.0
             val expected = PREAMBLE_PATTERN[position] > 0.0
             if (observed == expected) matches++
         }
@@ -183,9 +217,9 @@ object BfskDemodulator {
         }
 
         return FrameStart(
-            sample = bestSample,
+            sample = from + bestRelative,
             preambleMatches = matches,
-            coarseSample = coarse
+            coarseSample = from + coarseRelative
         )
     }
 
