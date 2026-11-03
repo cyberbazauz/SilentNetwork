@@ -1079,25 +1079,41 @@ class DesktopApp:
                 text="Входных устройств не найдено. Проверьте микрофон Windows."
             )
             return
-        preferred = next(
-            (
-                device
-                for device in self.data_input_devices
-                if getattr(device, "is_default_input", False)
-            ),
-            self.data_input_devices[0],
-        )
+        preferred = audio.select_preferred_device(self.data_input_devices, "input")
+        if preferred is None:
+            self.data_selected_input = None
+            self.data_input_box.set("")
+            self.data_record_status.configure(
+                text=(
+                    f"Найдено микрофонов: {len(labels)}. Автовыбор отключён: "
+                    "доступны только Bluetooth или виртуальные устройства. "
+                    "Подключите встроенный или USB-микрофон."
+                )
+            )
+            return
         self.data_selected_input = preferred
         position = self.data_input_devices.index(preferred)
         self.data_input_box.current(position)
+        warning = audio.device_warning(preferred)
+        suffix = f" Внимание: {warning}" if warning else ""
         self.data_record_status.configure(
-            text=f"Найдено микрофонов: {len(labels)}. Выбран: {preferred.name}."
+            text=f"Найдено микрофонов: {len(labels)}. Выбран: {preferred.name}.{suffix}"
         )
 
     def _on_data_input_selected(self, _event: Any | None = None) -> None:
         position = self.data_input_box.current()
         if 0 <= position < len(self.data_input_devices):
-            self.data_selected_input = self.data_input_devices[position]
+            device = self.data_input_devices[position]
+            self.data_selected_input = device
+            warning = audio.device_warning(device)
+            if warning:
+                self.data_record_status.configure(
+                    text=f"[{device.index}] {device.name}. Внимание: {warning}"
+                )
+            else:
+                self.data_record_status.configure(
+                    text=f"[{device.index}] {device.name} выбран для записи."
+                )
 
     def generate_data(self) -> None:
         if data_desktop is None:
@@ -1166,6 +1182,8 @@ class DesktopApp:
 
     def _ask_confirm_data(self, generated: Any, device: Any) -> bool:
         duration = generated.file_duration_s
+        warning = audio.device_warning(device)
+        warning_line = f"\n\nВнимание: {warning}" if warning else ""
         return bool(
             messagebox.askyesno(
                 "Подтверждение передачи",
@@ -1175,7 +1193,7 @@ class DesktopApp:
                     f"Профиль: {generated.profile.name}\n"
                     f"Длительность: {duration:.2f} с\n"
                     f"Устройство: {device.name}\n\n"
-                    "Сообщение не зашифровано. Продолжить?"
+                    f"Сообщение не зашифровано. Продолжить?{warning_line}"
                 ),
                 parent=self.root,
                 icon="warning",
@@ -1555,10 +1573,17 @@ class DesktopApp:
         self.device_name_label.configure(text="Устройство не выбрано")
         self._update_playback_state()
         if self.devices:
-            preferred = next(
-                (device for device in self.devices if getattr(device, "is_default_output", False)),
-                self.devices[0],
-            )
+            preferred = audio.select_preferred_device(self.devices, "output")
+            if preferred is None:
+                self.device_status.configure(
+                    text=(
+                        f"Найдено динамиков: {len(self.devices)}. "
+                        "Автовыбор отключён: доступны только Bluetooth или "
+                        "виртуальные устройства. Подключите встроенный динамик "
+                        "и выберите его вручную."
+                    )
+                )
+                return
             for item in self.device_tree.get_children():
                 values = self.device_tree.item(item, "values")
                 if values and str(values[0]) == str(preferred.index):
@@ -1566,8 +1591,13 @@ class DesktopApp:
                     self.device_tree.see(item)
                     break
             self._on_device_selected()
+            warning = audio.device_warning(preferred)
+            suffix = f" Внимание: {warning}" if warning else ""
             self.device_status.configure(
-                text=f"Найдено динамиков: {len(self.devices)}. Автовыбор: {preferred.name}."
+                text=(
+                    f"Найдено динамиков: {len(self.devices)}. "
+                    f"Автовыбор: {preferred.name}.{suffix}"
+                )
             )
         else:
             self.device_status.configure(
@@ -1589,11 +1619,13 @@ class DesktopApp:
             if device.index == index:
                 self.selected_device = device
                 self.device_name_label.configure(text=device.name)
+                warning = audio.device_warning(device)
+                text = (
+                    f"Доступен · драйвер {device.hostapi_name} · "
+                    f"{device.default_samplerate:g} Гц"
+                )
                 self.device_status.configure(
-                    text=(
-                        f"Доступен · драйвер {device.hostapi_name} · "
-                        f"{device.default_samplerate:g} Гц"
-                    )
+                    text=f"{text}. Внимание: {warning}" if warning else text
                 )
                 break
         self._update_playback_state()

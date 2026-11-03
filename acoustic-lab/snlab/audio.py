@@ -18,6 +18,7 @@ sounddevice импортируется лениво, чтобы тесты и а
 from __future__ import annotations
 
 import math
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Iterable
@@ -223,6 +224,92 @@ def list_devices(sd_module: Any | None = None) -> list[DeviceInfo]:
             )
         )
     return devices
+
+
+BLUETOOTH_NAME_PATTERN = re.compile(
+    r"hands[- ]?free|bthhfenum|bluetooth|airpods|\bheadset\b|wireless|\bbt600\b",
+    re.IGNORECASE,
+)
+HEADPHONE_NAME_PATTERN = re.compile(r"наушники|headphones", re.IGNORECASE)
+VIRTUAL_NAME_PATTERN = re.compile(
+    r"переназначение|первичный драйвер|первичный звуковой|стерео микшер|"
+    r"virtual|voicemeeter|vb-audio|cable output|loopback|sound mapper|what u hear",
+    re.IGNORECASE,
+)
+BUILTIN_NAME_PATTERN = re.compile(
+    r"realtek|amd|microphone array|speaker|динамик|микрофон|headphones 1 \(realtek",
+    re.IGNORECASE,
+)
+
+
+def is_bluetooth_device(name: str) -> bool:
+    """Похоже ли имя устройства на Bluetooth-маршрут или гарнитуру.
+
+    Это эвристика по имени: Windows не отдаёт транспорт через PortAudio.
+    «Наушники»/«Headphones» без признаков встроенного устройства считаются
+    подозрительными, потому что так Windows показывает и Bluetooth-гарнитуру.
+    Ошибка в сторону осторожности: такое устройство не выбирается автоматически,
+    но остаётся доступным для ручного выбора.
+    """
+    if BLUETOOTH_NAME_PATTERN.search(name):
+        return True
+    return bool(HEADPHONE_NAME_PATTERN.search(name)) and not is_builtin_device(name)
+
+
+def is_virtual_device(name: str) -> bool:
+    """Виртуальное или перенаправленное устройство (микшер, кабель, mapper)."""
+    return bool(VIRTUAL_NAME_PATTERN.search(name))
+
+
+def is_builtin_device(name: str) -> bool:
+    """Похоже ли имя на встроенный динамик/микрофон ноутбука."""
+    return bool(BUILTIN_NAME_PATTERN.search(name))
+
+
+def device_warning(device: DeviceInfo) -> str | None:
+    """Предупреждение для UI или None, если маршрут допустим для измерения."""
+    if is_bluetooth_device(device.name):
+        return (
+            "похоже на Bluetooth-устройство или гарнитуру: нельзя использовать "
+            "как основной измерительный маршрут без проверки фактического маршрута."
+        )
+    if is_virtual_device(device.name):
+        return (
+            "Виртуальное или перенаправленное устройство: не подходит "
+            "для акустического теста через воздух."
+        )
+    return None
+
+
+def select_preferred_device(
+    devices: Iterable[DeviceInfo], direction: str
+) -> DeviceInfo | None:
+    """Выбрать встроенное устройство для автовыбора.
+
+    Порядок: встроенное → системное по умолчанию → первое допустимое.
+    Bluetooth и виртуальные устройства не выбираются автоматически. Если
+    допустимых устройств нет, возвращается None: UI обязан оставить выбор
+    пустым и предупредить пользователя, а не подставлять Bluetooth молча.
+    """
+    if direction not in ("input", "output"):
+        raise ValueError("direction должен быть 'input' или 'output'")
+    available = [
+        device
+        for device in devices
+        if (device.is_output if direction == "output" else device.is_input)
+    ]
+    safe = [
+        device
+        for device in available
+        if not is_bluetooth_device(device.name) and not is_virtual_device(device.name)
+    ]
+    if not safe:
+        return None
+    builtin = next((device for device in safe if is_builtin_device(device.name)), None)
+    if builtin is not None:
+        return builtin
+    default_flag = "is_default_output" if direction == "output" else "is_default_input"
+    return next((device for device in safe if getattr(device, default_flag, False)), safe[0])
 
 
 def probe_formats(

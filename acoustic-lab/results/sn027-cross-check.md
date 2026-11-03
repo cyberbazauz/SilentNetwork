@@ -1,6 +1,6 @@
 # SN-027: кросс-проверка Python ↔ Kotlin
 
-- Дата: 2026-11-03 03:27 UTC
+- Дата: 2026-11-03 13:33 UTC
 - Канал: файловый L0 (WAV), не воздух.
 - Проверка: Python WAV → Kotlin-декодер и Kotlin WAV → Python-декодер.
 - Рабочий каталог: `C:\Projects\SilentNetwork\acoustic-lab\results\cross-check`

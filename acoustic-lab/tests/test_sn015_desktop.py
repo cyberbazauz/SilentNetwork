@@ -721,6 +721,12 @@ def test_gui_device_selection_is_automatic(tmp_path: Path) -> None:
 
 
 def test_gui_auto_selects_default_output(tmp_path: Path) -> None:
+    """Автовыбор берёт корректный default, но не «подозрительную» гарнитуру.
+
+    SN-028: на реальной машине системным выходом были Bluetooth-наушники.
+    Поэтому встроенный динамик важнее default, а среди допустимых устройств
+    по-прежнему действует системный default.
+    """
     engine = playback.FakePlaybackEngine()
     root = make_root()
     app = desktop_app.DesktopApp(
@@ -736,9 +742,31 @@ def test_gui_auto_selects_default_output(tmp_path: Path) -> None:
     )
     try:
         assert app.selected_device is not None
+        assert app.selected_device.index == 3
+        assert app.selected_device.name == "Speakers (Realtek(R) Audio)"
+        assert app.device_name_label.cget("text") == "Speakers (Realtek(R) Audio)"
+        assert "Внимание" in app.device_status.cget("text") or "Автовыбор" in app.device_status.cget("text")
+    finally:
+        root.destroy()
+
+
+def test_gui_auto_selects_default_when_no_builtin(tmp_path: Path) -> None:
+    engine = playback.FakePlaybackEngine()
+    root = make_root()
+    app = desktop_app.DesktopApp(
+        root,
+        hardware_test=False,
+        results_dir=tmp_path / "results",
+        engine=engine,
+        device_lister=lambda: [
+            make_device(5, name="USB Audio DAC"),
+            make_device(7, name="USB Audio DAC 2", default_output=True),
+        ],
+        confirm_playback=lambda tone, device: True,
+    )
+    try:
+        assert app.selected_device is not None
         assert app.selected_device.index == 7
-        assert app.selected_device.name == "Headphones"
-        assert app.device_name_label.cget("text") == "Headphones"
     finally:
         root.destroy()
 
