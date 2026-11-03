@@ -236,6 +236,10 @@ Python WAV → Kotlin-декодер и Kotlin WAV → Python-декодер. Д
 `acoustic-lab/results/sn027-cross-check.md`. Это проверка L0 на JVM и
 синтезированном WAV; она не заменяет воздушный тест.
 
+Первый воздушный файл подготовлен отдельно: `docs/sn034-first-air-runbook.md`
+(JSON 43 байта, `data-audible`, 30 см, запись 15 с). Артефакты WAV/JSON лежат
+локально в `acoustic-lab/results/sn034-first-air/` и не коммитятся.
+
 ## 7. Ошибки
 
 | `error_type` | Причина |

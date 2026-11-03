@@ -172,6 +172,8 @@ SHA-256 и экспорт принятого файла и JSON-отчёта. К
 - `docs/sn028-next-plan.md` — план дальнейших работ после первого успеха.
 - `docs/acoustic-file-transfer.md` — контракт файлового слоя v0, пакеты,
   лимиты, CLI и дорожная карта.
+- `docs/sn034-first-air-runbook.md` — подготовленный первый воздушный файл
+  43 байта на 30 см, порядок прогона и критерий успеха.
 - `acoustic-lab/results/sn028-first-contact.md` — независимая проверка первого
   принятого WAV/JSON.
 - `docs/sn028-packaging.md` — сборка standalone Windows EXE.
