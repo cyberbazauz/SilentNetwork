@@ -15,10 +15,25 @@ import java.io.File
  * каталог через `-PsnCrosscheckDir=...`. Без этого свойства тест пропускается,
  * поэтому обычный `gradlew test` не зависит от внешних файлов.
  *
+ * Проверяются два слоя:
+ *  - Data Link: Python WAV → Kotlin-декодер и Kotlin WAV → Python-декодер;
+ *  - File Transfer v0: Python-файл → Kotlin-декодер → файл и SHA-256,
+ *    затем Kotlin-файл → WAV для обратной проверки Python-декодером.
+ *
  * Здесь проверяется только файловый канал L0. Успешное декодирование WAV не
- * доказывает передачу через воздух.
+ * доказывает передачу через воздух. SHA-256 проверяет целостность, но не
+ * аутентифицирует отправителя.
  */
 class CrossLanguageTest {
+
+    private fun hexToBytes(hex: String): ByteArray {
+        require(hex.length % 2 == 0) { "hex должен иметь чётную длину" }
+        val bytes = ByteArray(hex.length / 2)
+        for (index in bytes.indices) {
+            bytes[index] = hex.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+        return bytes
+    }
 
     @Test
     fun crossCheckPythonAndKotlin() {
@@ -76,10 +91,82 @@ class CrossLanguageTest {
             )
         }
 
+        val fileResults = crossCheckFileTransfer(dir, manifest)
+
         val root = JSONObject()
         root.put("schema", "silentnetwork.cross-check/1")
         root.put("cases", results)
+        root.put("files", fileResults)
         File(dir, "crosscheck-result.json")
             .writeText(root.toString(2), Charsets.UTF_8)
+    }
+
+    /**
+     * Файловый слой: Kotlin собирает файл из Python-WAV и кодирует его же
+     * обратно в WAV. Python после Gradle независимо проверит Kotlin-WAV.
+     */
+    private fun crossCheckFileTransfer(dir: File, manifest: JSONObject): JSONArray {
+        val fileResults = JSONArray()
+        val cases = manifest.optJSONArray("files") ?: return fileResults
+        val decodedDir = File(dir, "kotlin-decoded")
+        decodedDir.mkdirs()
+
+        for (index in 0 until cases.length()) {
+            val case = cases.getJSONObject(index)
+            val id = case.getString("id")
+            val profileName = case.getString("profile")
+            val filename = case.getString("filename")
+            val expectedContent = hexToBytes(case.getString("content_hex"))
+            val transferId = case.getInt("transfer_id")
+            val profile = requireNotNull(BfskProfile.dataProfiles()[profileName]) {
+                "неизвестный профиль в манифесте: $profileName"
+            }
+
+            val pythonWav = File(dir, case.getString("wav"))
+            val decoded = FileTransferCodec.decodeWavToFile(
+                pythonWav.readBytes(),
+                profile,
+                decodedDir
+            )
+            val expectedSha256 = FileTransferCodec.sha256Hex(expectedContent)
+            val pythonToKotlinOk = decoded.ok &&
+                decoded.filename == filename &&
+                decoded.content?.contentEquals(expectedContent) == true &&
+                decoded.actualSha256 == expectedSha256 &&
+                decoded.hashOk
+
+            // Kotlin кодирует то же содержимое тем же профилем; Python
+            // декодирует этот WAV после Gradle.
+            val (kotlinWav, _) = FileTransferCodec.encodeFileToWav(
+                expectedContent,
+                filename,
+                profile,
+                transferId = transferId
+            )
+            val kotlinWavName = "kt_ft_$id.wav"
+            File(dir, kotlinWavName).writeBytes(kotlinWav)
+
+            fileResults.put(
+                JSONObject().apply {
+                    put("id", id)
+                    put("profile", profileName)
+                    put("kotlin_ok", pythonToKotlinOk)
+                    put("kotlin_decode_ok", decoded.ok)
+                    put("kotlin_error", decoded.errorType ?: JSONObject.NULL)
+                    put("kotlin_message", decoded.message)
+                    put("kotlin_filename", decoded.filename ?: JSONObject.NULL)
+                    put("kotlin_size", decoded.content?.size ?: JSONObject.NULL)
+                    put("kotlin_sha256", decoded.actualSha256 ?: JSONObject.NULL)
+                    put("kotlin_hash_ok", decoded.hashOk)
+                    put("kotlin_total_chunks", decoded.state?.totalChunks ?: JSONObject.NULL)
+                    put("kotlin_frames_found", decoded.stream.framesFound)
+                    put("kt_wav", kotlinWavName)
+                    put("kt_filename", filename)
+                    put("kt_size", expectedContent.size)
+                    put("kt_sha256", expectedSha256)
+                }
+            )
+        }
+        return fileResults
     }
 }
