@@ -185,6 +185,28 @@ class DataLinkVectorsTest {
         assertTrue(decoded.crcOk)
     }
 
+    @Test
+    fun receiveReportStoresThresholdNotActualMatches() {
+        val (wav, _) = DataLinkCodec.encodeToWav("Ping", BfskProfile.DATA_AUDIBLE)
+        val decoded = DataLinkCodec.decodeFromWav(
+            wav,
+            BfskProfile.DATA_AUDIBLE,
+            minPreambleMatches = 28
+        )
+        assertTrue(decoded.ok)
+        assertEquals(32, decoded.preambleMatches)
+        val report = org.json.JSONObject(
+            DataLinkCodec.buildReceiveReport(
+                decoded,
+                "sn028-w2p-30cm-M1-01.wav",
+                "abc",
+                minPreambleMatches = 28
+            )
+        )
+        assertEquals(28, report.getInt("min_preamble_matches"))
+        assertEquals(32, report.getInt("preamble_matches"))
+    }
+
     private fun hexToBits(hex: String): ByteArray {
         val bytes = ByteArray(hex.length / 2)
         for (index in bytes.indices) {

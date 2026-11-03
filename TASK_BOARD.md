@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 3.1
+**Версия:** 3.2
 **Дата создания:** 2026-11-01
-**Последнее обновление:** 2026-11-03 — Agent 1: Product Owner сообщил об успешной передаче Laptop → Phone; доказательство не оформлено (`USER-REPORTED SUCCESS — EVIDENCE PENDING`), нужны WAV/JSON и метаданные. Добавлен пакетный анализатор `sn028_series.py` (11 тестов, 512 passed) и план `docs/sn028-next-plan.md`; Phone → Laptop — `PENDING EXTERNAL MICROPHONE`
+**Последнее обновление:** 2026-11-03 — Agent 1: первый контакт Laptop → Phone проверен по сохранённым WAV/JSON: SHA-256, кадр Frame v1, CRC-16 `0xD8B5`, текст `SILENTNETWORK`, 32/32 преамбулы, клиппинга нет — `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`. Создан runbook серии 30 см `docs/sn028-stage-1-runbook.md`; Phone → Laptop — `PENDING EXTERNAL MICROPHONE`
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1. Агент обновляет статус задачи и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -81,7 +81,7 @@
 | SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | DONE | `snlab/datalink_desktop.py` + карточки в `desktop_app.py`: подтверждение PLAY, запись микрофона по кнопке, декодирование, человекочитаемый вердикт, WAV/JSON (playback/receive схемы), фейковые тесты; `tests/test_sn025_datalink_desktop.py` (17 тестов); `488 passed`. Физический воздух-тест — SN-028. |
 | SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | DONE | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты `DataLinkVectorsTest`/`DataLinkStateTest`; `test --rerun-tasks` — 73 debug + 73 release, failures 0; `assembleDebug` — BUILD SUCCESSFUL; APK `dist/silentnetwork-android-debug.apk`. Физический воздух — SN-028. |
 | SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | DONE | `acoustic-lab/cross_check_android.py` + `CrossLanguageTest` (запуск по `-PsnCrosscheckDir`): 4 кейса (ASCII, кириллица, mixed, 64 байта) в обе стороны, преамбула 32/32, CRC совпал. Отчёт `acoustic-lab/results/sn027-cross-check.md`. |
-| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | IN_PROGRESS | **Laptop → Phone:** Product Owner сообщил об успешной передаче 2026-11-03 — `USER-REPORTED SUCCESS — EVIDENCE PENDING`: нет WAV/JSON, дистанции, профиля, текста, громкости и независимой проверки CRC. Формальный PASS не заявлен. **Phone → Laptop:** `PENDING EXTERNAL MICROPHONE` — встроенный микрофон ноутбука не работает, в статистику не входит. Добавлен `acoustic-lab/sn028_series.py`: пакетный разбор WAV серии, проверка текста/CRC, CSV/JSON/MD, пороги 30 см 10/10, 1 м ≥ 8/10, шум 0 ложных кадров; 11 тестов, Python 512 passed. Preflight: 20 endpoint'ов, форматы 8–192 кГц, профили Python/Kotlin совпадают, Android 73+73, кросс-проверка 4/4. План: `docs/sn028-next-plan.md`; отчёт: `acoustic-lab/results/sn028-preflight.md`; протокол: `docs/sn028-physical-test-protocol.md`. |
+| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | IN_PROGRESS | **Laptop → Phone:** `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`. Product Owner сохранил `reports/datalink_rx_data-audible.wav` и JSON; Agent 1 независимо проверил: SHA-256 `aed02e7b…a00a42` совпал, кадр Frame v1, CRC-16 `0xD8B5`, текст `SILENTNETWORK`, преамбула 32/32, 5.0 с, 48 кГц PCM16 mono, RMS −45.37 dBFS, пик −26.84 dBFS, клиппинг 0, старт 2.393 с; контраст «кадр/фон» ≈24–26 дБ. Это не серия 30 см: нет дистанции, громкости, модели телефона и помещения, текст не M1–M3, запись 5 с. **Phone → Laptop:** `PENDING EXTERNAL MICROPHONE` — встроенный микрофон ноутбука не работает, в статистику не входит. Добавлены `acoustic-lab/sn028_series.py` (пакетный разбор, пороги 30 см 10/10, 1 м ≥ 8/10, 3 м исследовательски, шум 0 ложных кадров), `docs/sn028-next-plan.md` и `docs/sn028-stage-1-runbook.md`. Исправлен JSON Android: `min_preamble_matches` пишет порог 28, а не фактические 32; Android 74 debug + 74 release, failures 0; APK `dist/SilentNetwork-Android.apk` 3 520 640 байт, SHA-256 `c4384015…f18034`. Python 512 passed. |
 | SN-029 | Standalone Windows EXE: отправка, приём и декодирование | Agent 1 | DONE | `dist/SilentNetwork-Desktop.exe` собран PyInstaller 6.22.3 (onefile, windowed) из `acoustic-lab/desktop_app.py`; исключены `torch`, `pandas`, `matplotlib`, тестовые пакеты — размер 66 450 541 байт вместо 234 873 087. Результаты в frozen-режиме пишутся рядом с `.exe` (`snlab/desktop.py`, `snlab/datalink_desktop.py`), тесты `tests/test_sn028_packaging.py`. Фактически: smoke-test exit 0, окно «SilentNetwork — Акустическая лаборатория» открывается, `501 passed`. Инструкция: `docs/sn028-packaging.md`. Передача через воздух не выполнялась. |
 
 ### Этап 3 — Security, Identity и SCNP
@@ -201,9 +201,20 @@
 - Добавлена инструкция `docs/sn028-packaging.md` с точной командой сборки и ограничениями. EXE не подписан; передача через воздух не выполнялась.
 - Android-APK не пересобирался: исходники Android не менялись после сборки (последнее изменение `DataLinkStateTest.kt` — 00:38, APK — 08:26).
 
+**Обновлено 2026-11-03 (Agent 1, первый контакт проверен):**
+
+- Product Owner сохранил в `reports/` файлы `datalink_rx_data-audible.wav` и `datalink_rx_data-audible_report.json`. Agent 1 проверил их независимо: SHA-256 WAV `aed02e7b1526ceaba65130f55c366426cfc796e095e65741b39adb52caa00a42` совпал с JSON; кадр Frame v1 декодирован Python-приёмником при порогах 28/32 и 32/32; текст `SILENTNETWORK`, payload hex `53494c454e544e4554574f524b`, CRC-16 `0xD8B5`, версия 1, преамбула 32/32, `start_sample=114880`, `start_time_s=2.3933`.
+- Метрики записи: 5.0 с, 48 кГц PCM16 mono, 240 000 отсчётов, RMS −45.37 dBFS, пик −26.84 dBFS, клиппинг 0. Контраст «кадр/фон»: до кадра −62.99 dBFS, кадр −37.02 dBFS, после −60.85 dBFS, то есть ≈24–26 дБ. Доминанта в полосе 900–2500 Гц — 2156 Гц, mark 1200 Гц присутствует.
+- Статус Laptop → Phone: `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`. Первый контакт не входит в статистику SN-028: нет дистанции, громкости, модели телефона и помещения; текст не M1–M3; запись 5 с вместо 10 с.
+- Оформлен отчёт `acoustic-lab/results/sn028-first-contact.md` с фактическими числами, отклонениями от протокола и ограничениями.
+- Создан `docs/sn028-stage-1-runbook.md`: точный порядок 10 попыток на 30 см, тексты M1–M3, имена файлов, шапка метаданных, таблица попыток, команда разбора, правила при неудаче.
+- Исправлен дефект JSON Android: `buildReceiveReport` принимает `minPreambleMatches` и записывает порог (28), а не фактическое совпадение (32); `AudioLabFragment` передаёт `DataLinkState.ACOUSTIC_MIN_PREAMBLE`. Добавлен тест `receiveReportStoresThresholdNotActualMatches`. Android: **74 debug + 74 release**, failures 0, errors 0; `assembleDebug` — BUILD SUCCESSFUL.
+- Обновлён `dist/SilentNetwork-Android.apk` (и `dist/silentnetwork-android-debug.apk`): 3 520 640 байт, SHA-256 `c4384015a6b97a6466d3d000540a3fcc106a163644d98ccb0fc337e621f18034`. EXE не менялся.
+- `reports/` не коммитится: WAV игнорируется `*.wav`, пользовательские артефакты остаются локально.
+
 **Обновлено 2026-11-03 (Agent 1, первый успех и план):**
 
-- Product Owner сообщил, что сообщение успешно передалось. Это зафиксировано как `USER-REPORTED SUCCESS — EVIDENCE PENDING`, а не как PASS: WAV/JSON, дистанция, профиль, текст, громкость и независимая проверка CRC не предоставлены.
+- Product Owner сообщил, что сообщение успешно передалось. На тот момент это было зафиксировано как `USER-REPORTED SUCCESS — EVIDENCE PENDING`; позже WAV/JSON были предоставлены и проверены — см. блок «первый контакт проверен» выше.
 - Добавлен `acoustic-lab/sn028_series.py` и CLI `acoustic-lab/sn028_series.py`: пакетный разбор экспортированных WAV, независимое декодирование Python-приёмником, сверка текста и CRC, метрики записи, CSV/JSON/Markdown, вердикты по утверждённым порогам (30 см 10/10, 1 м ≥ 8/10, 3 м исследовательски, шум 0 ложных кадров). Неизвестная дистанция/неполная серия дают `INCOMPLETE`, а не PASS.
 - Тесты `tests/test_sn028_series.py` (11): успешное декодирование, кириллица, несовпадение текста, тишина, пороги, фильтрация дистанций, запись отчётов. Python **512 passed**.
 - Исправлен быстрый старт в протоколе: запись на Android имеет фиксированную длительность 10 с; ручная кнопка «Стоп» отменяет запись, а не принимает её. Предыдущая формулировка «остановить через 3–4 с» была ошибочной.
@@ -241,7 +252,7 @@
 8. Подтвердить приоритет направления Windows → Android, затем Android → Windows.
 9. Утвердить лимит payload 64 байта UTF-8 для v0.
 10. ~~Утвердить пороги PASS из `docs/acoustic-data-link-plan.md` §9.4~~ — утверждены Product Owner 2026-11-03 (30 см 10/10, 1 м ≥8/10, 3 м исследовательски).
-11. SN-028: направление Laptop → Phone переведено в `USER-REPORTED SUCCESS — EVIDENCE PENDING`; нужны WAV/JSON первого успеха и метаданные (дистанция, профиль, текст, устройства, громкость, время). Phone → Laptop — `PENDING EXTERNAL MICROPHONE`; нужен рабочий проводной или USB-микрофон ноутбука.
+11. SN-028: Laptop → Phone — `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`; следующий шаг — серия 30 см ×10 по `docs/sn028-stage-1-runbook.md` с WAV/JSON и метаданными. Phone → Laptop — `PENDING EXTERNAL MICROPHONE`; нужен рабочий проводной или USB-микрофон ноутбука.
 12. Подтвердить план `docs/sn028-next-plan.md` и приоритет этапов; после SN-028 выбрать направление: укрепление канала, Security/SCNP или M1.
 13. Подтвердить, что для EXE достаточно существующей передачи/приёма текста, или запросить отдельный режим работы с произвольными аудиофайлами (сейчас такого режима нет).
 
@@ -272,6 +283,7 @@
 | 2026-11-03 | Agent 1 | SN-028 preflight: `sn028_preflight.py`, безопасный автовыбор устройств (встроенное вместо Bluetooth), тесты 10 + обновление SN-015; Python 499 passed; Android 73+73; кросс-проверка 4/4; отчёт `acoustic-lab/results/sn028-preflight.md`; Laptop → Phone BLOCKED (нет Android), Phone → Laptop PENDING EXTERNAL MICROPHONE | Версия 2.9 |
 | 2026-11-03 | Agent 1 | SN-029: standalone `dist/SilentNetwork-Desktop.exe` (66 МБ, onefile/windowed, исключены torch/pandas/matplotlib), frozen-каталог результатов рядом с `.exe`, тесты упаковки; smoke-test exit 0, окно открывается, Python 501 passed; инструкция `docs/sn028-packaging.md`; передача через воздух не выполнялась | Версия 3.0 |
 | 2026-11-03 | Agent 1 | Первый успех Laptop → Phone по сообщению Product Owner зафиксирован как `USER-REPORTED SUCCESS — EVIDENCE PENDING`; добавлен пакетный анализатор WAV `sn028_series.py` (11 тестов, Python 512 passed) и план `docs/sn028-next-plan.md`; исправлена ошибка быстрого старта про ручную остановку записи | Версия 3.1 |
+| 2026-11-03 | Agent 1 | WAV/JSON первого контакта проверены независимо: SHA-256, Frame v1, CRC `0xD8B5`, текст `SILENTNETWORK`, 32/32 преамбулы, клиппинг 0, контраст ≈24–26 дБ; статус `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`; отчёт `acoustic-lab/results/sn028-first-contact.md`; runbook `docs/sn028-stage-1-runbook.md`; JSON Android исправлен (порог 28 вместо фактических 32), Android 74+74, APK 3 520 640 байт SHA-256 `c4384015…f18034` | Версия 3.2 |
 
 ## 7. Шаблон добавления задачи
 

@@ -6,9 +6,10 @@
 
 **Текущее состояние: исследовательский этап.** Криптографии, протокола SCNP и
 mesh-сети пока нет. Есть BFSK-тракт, Windows Desktop Lab и Android Audio Lab,
-включая раздел передачи текста через звук. Product Owner сообщил об успешной
-передаче Laptop → Phone; она **ещё не подтверждена документально** — нужны
-WAV/JSON и метаданные серии. Обратное направление ждёт внешний микрофон.
+включая раздел передачи текста через звук. Первый приём Laptop → Phone
+подтверждён на уровне файла: WAV и JSON с телефона независимо декодированы,
+CRC-16 и текст совпали. Серия SN-028 ещё не начата; обратное направление ждёт
+внешний микрофон.
 
 ## Что уже есть
 
@@ -25,7 +26,7 @@ WAV/JSON и метаданные серии. Обратное направлен
 | Windows Desktop Lab | реализован: WAV, PLAY через выбранный динамик, анализ записи телефона (SN-015/SN-016), передача и приём текста через звук (SN-025) |
 | Android Audio Lab | реализован: запись, WAV/JSON, анализ и вердикт, передача и приём текста через звук (SN-026) |
 | Standalone Windows EXE | собран `dist/SilentNetwork-Desktop.exe` (PyInstaller onefile, 66 МБ), smoke-test и запуск окна проверены |
-| Реальная передача через воздух | Laptop → Phone: `USER-REPORTED SUCCESS — EVIDENCE PENDING` (нет WAV/JSON и метаданных); Phone → Laptop: `PENDING EXTERNAL MICROPHONE` |
+| Реальная передача через воздух | Laptop → Phone: `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`; Phone → Laptop: `PENDING EXTERNAL MICROPHONE` |
 | Rust Core, SCNP, криптография | не реализованы |
 
 ## Структура репозитория
@@ -125,7 +126,10 @@ python sn028_series.py --dir <каталог> --distance 30cm
   фактические результаты SN-013.
 - `docs/sn028-physical-test-protocol.md` — протокол физического теста SN-028 и
   быстрый старт Laptop → Phone.
+- `docs/sn028-stage-1-runbook.md` — точный порядок серии 30 см, 10 попыток.
 - `docs/sn028-next-plan.md` — план дальнейших работ после первого успеха.
+- `acoustic-lab/results/sn028-first-contact.md` — независимая проверка первого
+  принятого WAV/JSON.
 - `docs/sn028-packaging.md` — сборка standalone Windows EXE.
 - `acoustic-lab/results/M0-report.md` — отчёт BER/PER на AWGN и M0-6.
 - `docs/decisions/ADR-001-acoustic-frame-v1.md` — формат кадра, CRC-16 и

@@ -733,7 +733,12 @@ class AudioLabFragment : Fragment() {
                     profile,
                     minPreambleMatches = DataLinkState.ACOUSTIC_MIN_PREAMBLE
                 )
-                val report = DataLinkCodec.buildReceiveReport(received, filename, sha256)
+                val report = DataLinkCodec.buildReceiveReport(
+                    received,
+                    filename,
+                    sha256,
+                    minPreambleMatches = DataLinkState.ACOUSTIC_MIN_PREAMBLE
+                )
                 mainHandler.post {
                     if (_binding == null) return@post
                     lastDataLinkWavFile = file

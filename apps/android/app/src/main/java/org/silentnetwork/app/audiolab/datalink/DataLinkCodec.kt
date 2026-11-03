@@ -267,14 +267,15 @@ object DataLinkCodec {
     fun buildReceiveReport(
         received: ReceivedMessage,
         wavFilename: String?,
-        wavSha256: String?
+        wavSha256: String?,
+        minPreambleMatches: Int = FrameV1.PREAMBLE_BITS
     ): String {
         val root = JSONObject()
         root.put("schema", REPORT_SCHEMA)
         root.put("direction", "rx")
         root.put("timestamp", timestampUtc())
         root.put("profile", profileJson(received.profile))
-        root.put("min_preamble_matches", received.preambleMatches ?: FrameV1.PREAMBLE_BITS)
+        root.put("min_preamble_matches", minPreambleMatches)
         root.put("max_payload_bytes", MAX_DATA_PAYLOAD_BYTES)
         root.put("wav", wavJson(wavFilename, wavSha256))
         root.put("crc_is_authentication", false)
