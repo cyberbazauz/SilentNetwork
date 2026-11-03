@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 2.7
+**Версия:** 2.8
 **Дата создания:** 2026-11-01
-**Последнее обновление:** 2026-11-02 — Agent 1: SN-025 выполнен (Windows Desktop Lab: передача и приём текста через звук, WAV/JSON, 488 passed); физический аудиотест `PENDING`, пороги и диапазон всё ещё ждут решения Product Owner
+**Последнее обновление:** 2026-11-03 — Agent 1: SN-026 и SN-027 выполнены (Android BFSK-модем, Frame v1, раздел «Передача данных», APK; кросс-проверка Python ↔ Kotlin 4/4 в обе стороны, Kotlin 73+73 теста, Python 488 passed); физический тест SN-028 `PENDING`, пороги PASS ждут решения Product Owner
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1. Агент обновляет статус задачи и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -79,9 +79,9 @@
 | SN-023 | Исследовать диапазоны и профили на нескольких устройствах | Agent 1 | BACKLOG | Измерительный отчёт; слышимость и ограничения документированы |
 | SN-024 | Контракт Acoustic Data Link v0 и кросс-языковые тестовые векторы | Agent 1 | DONE | `docs/acoustic-data-link.md`, профили `data-audible`/`data-robust` в `config.py` (DEFAULT_PROFILE без изменения), `snlab/datalink.py`, `receiver.py` с `min_preamble_matches` (по умолчанию 32/32), векторы `tests/fixtures/data-link-vectors.json` и копия в `apps/android/app/src/test/resources/`; тесты `tests/test_datalink.py` (24 теста) + обновлённые `test_config.py`; `471 passed`. Frame v1 и CRC не менялись. Кросс-языковая совместимость — по декодированию. |
 | SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | DONE | `snlab/datalink_desktop.py` + карточки в `desktop_app.py`: подтверждение PLAY, запись микрофона по кнопке, декодирование, человекочитаемый вердикт, WAV/JSON (playback/receive схемы), фейковые тесты; `tests/test_sn025_datalink_desktop.py` (17 тестов); `488 passed`. Физический воздух-тест — SN-028. |
-| SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | BACKLOG | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты, `assembleDebug`; без фейковых состояний связи |
-| SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | BACKLOG | Python-кадр декодируется Kotlin, Kotlin-кадр декодируется Python; фактические результаты и команды сохранены |
-| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | BACKLOG | Протокол, серия опытов на 30 см / 1 м / 3 м, WAV/JSON, успешность и ложные срабатывания; PASS только при утверждённых порогах |
+| SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | DONE | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты `DataLinkVectorsTest`/`DataLinkStateTest`; `test --rerun-tasks` — 73 debug + 73 release, failures 0; `assembleDebug` — BUILD SUCCESSFUL; APK `dist/silentnetwork-android-debug.apk`. Физический воздух — SN-028. |
+| SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | DONE | `acoustic-lab/cross_check_android.py` + `CrossLanguageTest` (запуск по `-PsnCrosscheckDir`): 4 кейса (ASCII, кириллица, mixed, 64 байта) в обе стороны, преамбула 32/32, CRC совпал. Отчёт `acoustic-lab/results/sn027-cross-check.md`. |
+| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | BLOCKED | Нужен реальный прогон Windows → Android (и обратно) по протоколу SN-028, WAV/JSON и утверждённые Product Owner пороги PASS из `docs/acoustic-data-link-plan.md` §9.4. Код готов: Windows SN-025, Android SN-026. |
 
 ### Этап 3 — Security, Identity и SCNP
 
@@ -168,6 +168,16 @@
 - `tests/test_sn025_datalink_desktop.py` — 17 тестов: бэкенд и GUI с `FakePlaybackEngine` и фейковой записью. Полный прогон: **488 passed**.
 - `python desktop_app.py --smoke-test` — exit 0. Физическая передача через воздух не выполнялась: это SN-028.
 
+**Обновлено 2026-11-03 (Agent 1, SN-026 и SN-027 выполнены):**
+
+- Android: добавлен пакет `org.silentnetwork.app.audiolab.datalink` — `BfskProfile`, `FrameV1` (CRC-16/CCITT-FALSE), `BfskModulator` (непрерывная фаза, как в `snlab/bfsk.py`), `BfskDemodulator` (некогерентная энергия mark/space, поиск преамбулы по фазам, уточнение, проверки sync/version/length/CRC), `DataLinkCodec` (текст ↔ PCM/WAV ↔ отчёт JSON, строгий UTF-8).
+- Исправлена ошибка подтверждения преамбулы: считались только положительные значения метрики (16/32 вместо 32/32). Теперь наблюдаемый бит сравнивается с ожидаемым `1010…`.
+- `payload_utf8_error` теперь сохраняет `crc_ok=true` и данные кадра: целостность кадра подтверждена, текст — нет (как в Python).
+- В `AudioLabFragment` добавлена всегда развёрнутая карточка «Передача данных»: сообщение до 64 байт UTF-8, профиль `data-audible`/`data-robust`, подтверждение PLAY, запись 5/10/15 с, фоновое декодирование, человекочитаемый вердикт, принятый текст, метрики записи, экспорт WAV/JSON. Ручная остановка записи — отмена, а не приём; это явно написано в статусе.
+- Добавлены `DataLinkVectorsTest` и `DataLinkStateTest`: векторы Frame v1, round-trip, `data-robust`, неверный профиль, лимиты payload, повреждённый CRC, обрезанный кадр, чистый шум, UTF-8-ошибка при верном CRC, вердикты. Фактически: `gradlew test --rerun-tasks` — 73 debug + 73 release, failures 0, errors 0; `assembleDebug` — BUILD SUCCESSFUL; APK скопирован в `dist/silentnetwork-android-debug.apk`.
+- SN-027: `acoustic-lab/cross_check_android.py` создаёт WAV Python-кодеком, запускает `CrossLanguageTest` через `-PsnCrosscheckDir`, затем декодирует Kotlin-WAV обратно Python-кодеком. Фактически 4/4 кейса в обе стороны (ASCII, кириллица, mixed, 64 байта), преамбула 32/32, CRC совпал; отчёт `acoustic-lab/results/sn027-cross-check.md`.
+- Python-набор после изменений: **488 passed**. Физическая передача через воздух не выполнялась: SN-028 остаётся `BLOCKED` до реального прогона и утверждения порогов PASS. Android-скриншоты по-прежнему недоступны: эмулятор и `adb` отсутствуют.
+
 **Обновлено 2026-11-02 (Agent 1, интеграция SN-015):**
 
 - Android-ветка `agent1/sn015-android` (`5069513`) объединена в `agent1/m0-acoustic-lab` через `--no-ff`; merge commit `aba35cc`. Конфликтов нет. Android-файлы идентичны `5069513`, Windows-код идентичен `f497f66`.
@@ -200,6 +210,7 @@
 8. Подтвердить приоритет направления Windows → Android, затем Android → Windows.
 9. Утвердить лимит payload 64 байта UTF-8 для v0.
 10. Утвердить пороги PASS из `docs/acoustic-data-link-plan.md` §9.4 или заменить их.
+11. Разрешить физический прогон SN-028 (Windows → Android, затем Android → Windows): нужны оба устройства, помещение и запись WAV/JSON; без фактических измерений PASS не заявляется.
 
 ## 6. Журнал изменений
 
@@ -222,6 +233,8 @@
 | 2026-11-02 | Agent 1 | Составлен план Acoustic Data Link v0: передача текста в Frame v1 через слышимый профиль 1200/2200 Гц; задачи SN-024…SN-028; Windows → Android приоритетный; требования по кросс-проверке Python ↔ Kotlin и физическому тесту; пороги ждут PO | Версия 2.5 |
 | 2026-11-02 | Agent 1 | SN-024: контракт `docs/acoustic-data-link.md`, профили данных, `snlab/datalink.py`, `receiver.min_preamble_matches` (32/32 по умолчанию), кросс-языковые векторы; Python 471 passed; физика PENDING | Версия 2.6 |
 | 2026-11-02 | Agent 1 | SN-025: Windows Desktop Lab — передача и приём текста через звук, `snlab/datalink_desktop.py`, карточки в `desktop_app.py`, WAV/JSON, фейковые тесты; Python 488 passed; физика PENDING | Версия 2.7 |
+| 2026-11-03 | Agent 1 | SN-026: Android BFSK-модем и Frame v1, `audiolab/datalink/*`, `DataLinkCodec`, карточка «Передача данных», `DataLinkVectorsTest`/`DataLinkStateTest`; Android 73+73 теста, failures 0; `assembleDebug` успешен; APK в `dist/`; физика PENDING | Версия 2.8 |
+| 2026-11-03 | Agent 1 | SN-027: `cross_check_android.py` + `CrossLanguageTest`, 4/4 кейса Python ↔ Kotlin в обе стороны, преамбула 32/32, CRC совпал; отчёт `acoustic-lab/results/sn027-cross-check.md`; SN-028 → BLOCKED до физического прогона | Версия 2.8 |
 
 ## 7. Шаблон добавления задачи
 

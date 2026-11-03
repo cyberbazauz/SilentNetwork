@@ -1,7 +1,7 @@
 # Acoustic Data Link v0 — контракт
 
-**Статус:** DRAFT (для SN-024)  
-**Дата:** 2026-11-02  
+**Статус:** DRAFT (SN-024…SN-027 реализованы; физический тест SN-028 — `PENDING`)  
+**Дата:** 2026-11-03  
 **Связанные:** `docs/acoustic-data-link-plan.md`, `docs/decisions/ADR-001-acoustic-frame-v1.md`, `TASK_BOARD.md`
 
 ## 1. Назначение
@@ -164,3 +164,31 @@ UI: карточки «Передать сообщение» и «Принять
 - [x] Тесты с фейковыми движком и записью (`tests/test_sn025_datalink_desktop.py`)
 - [x] `python -m pytest tests -q` проходит без регрессий
 - [ ] Физическая передача через воздух — SN-028, отдельный отчёт
+
+## 12. Android: BFSK + Frame v1 (SN-026)
+Пакет `apps/android/app/src/main/java/org/silentnetwork/app/audiolab/datalink/`:
+
+| Файл | Назначение |
+|---|---|
+| `BfskProfile.kt` | `data-audible` и `data-robust` с теми же параметрами, что в `snlab/config.py` |
+| `FrameV1.kt` | преамбула `1010…`, sync `0x1ACF`, версия `1`, длина 16 BE, payload, CRC-16/CCITT-FALSE |
+| `BfskModulator.kt` | CPFSK с непрерывной фазой, ramp 5 мс; биты — `ByteArray` 0/1 |
+| `BfskDemodulator.kt` | некогерентная энергия mark/space на окне символа, поиск преамбулы по фазам, уточнение, проверка sync/version/length/CRC |
+| `DataLinkCodec.kt` | текст ↔ payload ↔ PCM/WAV, отчёты JSON, строгий UTF-8, лимит 64 байта |
+
+UI: всегда развёрнутая карточка «Передача данных» в Audio Lab. PLAY требует подтверждения; запись начинается только по кнопке и имеет фиксированную длительность 5/10/15 с. Ручная остановка — отмена записи, частичный буфер не декодируется и приём не заявляется. Для реального канала используется порог преамбулы 28/32 (`ACOUSTIC_MIN_PREAMBLE_MATCHES`), для файлов — 32/32.
+
+JSON-отчёт Android следует схеме `silentnetwork.acoustic-lab.data-link/1` с одним отличием: вместо локального `wav_path` пишется объект `wav` с `filename` и `sha256`, потому что Android работает через scoped storage и выбранный пользователем URI не является стабильным путём. `crc_is_authentication` всегда `false`. `payload_utf8_error` сохраняет `crc_ok=true` и кадр: целостность подтверждена, текст — нет.
+
+Ограничения: успешный PLAY означает воспроизведение WAV, а не приём; запись на телефоне в той же комнате не доказывает дальность. Если `AudioRecord` вынужденно отдал 44 100 Гц вместо 48 000, декодер вернёт `wav_format_error`, а не будет молча ресемплировать.
+
+## 13. Автоматическая кросс-проверка Python ↔ Kotlin (SN-027)
+`acoustic-lab/cross_check_android.py`:
+
+1. создаёт WAV Python-кодеком для 4 кейсов: ASCII `data-audible`, кириллица `data-audible`, mixed `data-robust`, 64 байта `data-robust`;
+2. запускает `CrossLanguageTest` через Gradle с `-PsnCrosscheckDir=<каталог>`;
+3. Kotlin декодирует Python-WAV и создаёт свои WAV тем же профилем;
+4. Python декодирует Kotlin-WAV и сверяет текст, `crc_ok` и преамбулу 32/32;
+5. пишет Markdown-отчёт в `acoustic-lab/results/sn027-cross-check.md`.
+
+Фактический прогон 2026-11-03: **PASS 4/4 в обе стороны**. Без `-PsnCrosscheckDir` тест Kotlin пропускается, поэтому обычный `gradlew test` не зависит от внешних файлов. Проверка относится только к файловому каналу L0 и не заменяет физический тест.

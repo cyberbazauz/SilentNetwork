@@ -52,6 +52,14 @@ android {
     }
 }
 
+// SN-027: путь к каталогу кросс-проверки передаётся скриптом
+// acoustic-lab/cross_check_android.py через -PsnCrosscheckDir=...
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("snCrosscheckDir").orNull?.let { directory ->
+        systemProperty("sn.crosscheck.dir", directory)
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
