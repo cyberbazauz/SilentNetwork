@@ -1,8 +1,8 @@
 # SilentNetwork — общая доска задач
 
-**Версия:** 2.8
+**Версия:** 2.9
 **Дата создания:** 2026-11-01
-**Последнее обновление:** 2026-11-03 — Agent 1: SN-026 и SN-027 выполнены (Android BFSK-модем, Frame v1, раздел «Передача данных», APK; кросс-проверка Python ↔ Kotlin 4/4 в обе стороны, Kotlin 73+73 теста, Python 488 passed); SN-026/SN-027 закоммичены, `dist/` обновлён; протокол SN-028 готов (`docs/sn028-physical-test-protocol.md`), физический прогон `PENDING` до утверждения порогов Product Owner
+**Последнее обновление:** 2026-11-03 — Agent 1: SN-028 preflight выполнен; параметры и пороги утверждены Product Owner; направление Laptop → Phone готово к 30 см, но Android не подключён (`adb devices` пуст); Phone → Laptop — `PENDING EXTERNAL MICROPHONE` (встроенный микрофон ноутбука не работает); Python 499 passed, Android 73+73, кросс-проверка 4/4
 **Владелец:** Product Owner
 
 Этот файл — единый источник текущего статуса работ для Agent 1. Агент обновляет статус задачи и добавляет краткий отчёт. Не ставь `DONE`, пока критерии приёмки не проверены.
@@ -81,7 +81,7 @@
 | SN-025 | Windows Desktop Lab: передача и приём текста через звук | Agent 1 | DONE | `snlab/datalink_desktop.py` + карточки в `desktop_app.py`: подтверждение PLAY, запись микрофона по кнопке, декодирование, человекочитаемый вердикт, WAV/JSON (playback/receive схемы), фейковые тесты; `tests/test_sn025_datalink_desktop.py` (17 тестов); `488 passed`. Физический воздух-тест — SN-028. |
 | SN-026 | Android: BFSK-модем, Frame v1 и раздел «Передача данных» | Agent 1 | DONE | Kotlin-модулятор/демодулятор, CRC-16, кодек текста, запись и воспроизведение, результат с CRC; unit-тесты `DataLinkVectorsTest`/`DataLinkStateTest`; `test --rerun-tasks` — 73 debug + 73 release, failures 0; `assembleDebug` — BUILD SUCCESSFUL; APK `dist/silentnetwork-android-debug.apk`. Физический воздух — SN-028. |
 | SN-027 | Автоматическая кросс-проверка Python ↔ Kotlin | Agent 1 | DONE | `acoustic-lab/cross_check_android.py` + `CrossLanguageTest` (запуск по `-PsnCrosscheckDir`): 4 кейса (ASCII, кириллица, mixed, 64 байта) в обе стороны, преамбула 32/32, CRC совпал. Отчёт `acoustic-lab/results/sn027-cross-check.md`. |
-| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | BLOCKED | Протокол подготовлен: `docs/sn028-physical-test-protocol.md` (фиксированные тексты, 10 попыток на дистанцию, 10 записей шума, таблица результатов). Нужны реальный прогон Windows → Android (и обратно), WAV/JSON и утверждённые Product Owner пороги PASS из `docs/acoustic-data-link-plan.md` §9.4. Код готов: Windows SN-025, Android SN-026. |
+| SN-028 | Физический тест передачи данных и отчёт | Agent 1 | IN_PROGRESS | Параметры и пороги утверждены Product Owner 2026-11-03. **Laptop → Phone:** `BLOCKED` по устройству — Android не подключён (`adb devices` пуст, MTP нет), физическая серия не начата. **Phone → Laptop:** `PENDING EXTERNAL MICROPHONE` — встроенный микрофон ноутбука не работает, в статистику не входит. Preflight: 20 endpoint'ов, форматы 8–192 кГц, профили Python/Kotlin совпадают, Python 499 passed, Android 73+73, кросс-проверка 4/4. Отчёт: `acoustic-lab/results/sn028-preflight.md`; протокол: `docs/sn028-physical-test-protocol.md`. |
 
 ### Этап 3 — Security, Identity и SCNP
 
@@ -180,6 +180,18 @@
 - Подготовлен протокол SN-028: `docs/sn028-physical-test-protocol.md` — фиксированные тексты M1–M3, по 10 попыток на 30 см / 1 м / 3 м, 10 записей шума, таблица результатов, требования к артефактам. Прогон не выполнялся: нет утверждённых порогов и физического доступа к паре устройств.
 - `dist/SilentNetwork-Desktop/` обновлён текущими `desktop_app.py` и `snlab/*.py` (включая `datalink.py`, `datalink_desktop.py`), `__pycache__` удалён; `python desktop_app.py --smoke-test` из `dist` — exit 0. `dist/SilentNetwork-Android.apk` заменён актуальной debug-сборкой (совпадает по SHA-256 с `dist/silentnetwork-android-debug.apk`), чтобы не устанавливали старую версию без раздела «Передача данных».
 
+**Обновлено 2026-11-03 (Agent 1, SN-028 preflight):**
+
+- Утверждённые Product Owner параметры зафиксированы: `data-audible` основной, `data-robust` диагностический, payload ≤ 64 байта, 30 см 10/10, 1 м ≥ 8/10, 3 м исследовательски, `bfsk-18k` не профиль приёмки. Профили, пороги и протокол не менялись.
+- Добавлен `acoustic-lab/sn028_preflight.py`: инвентаризация устройств, безопасная запись фона, контрольный тон в петле ноутбука; результаты пишутся в `acoustic-lab/results/sn028/`. Добавлены `snlab.audio.select_preferred_device`, `device_warning`, `is_builtin_device`, `is_virtual_device`, `is_bluetooth_device`.
+- Автовыбор устройств исправлен: сначала встроенное устройство, Bluetooth и виртуальные не выбираются; если допустимых нет — выбор пустой и предупреждение. Инцидент: в 18:19 системным выходом были Bluetooth-наушники `inkax-T02`, к 18:21 они исчезли. Тесты политики: `tests/test_sn028_device_selection.py` (10), обновлён `tests/test_sn015_desktop.py`.
+- Preflight фактически: 20 endpoint'ов (11 входов, 9 выходов); default output MME `[3] Speaker (Realtek(R) Audio)`, default input MME `[1] Microphone Array (AMD Audio Dev`; форматы 8000–192000 Гц, `float32/int16/int24/int32`; 48000 Гц поддерживается. Входы ноутбука: MME/WASAPI — насыщенный шум с клиппингом, DirectSound — цифровая тишина, WDM-KS — ошибка `PaErrorCode -9999`.
+- Product Owner подтвердил: встроенный микрофон ноутбука не работает, динамик работает, микрофон Android работает. Поэтому объём этапа изменён: выполняется только Laptop → Phone; Phone → Laptop — `PENDING EXTERNAL MICROPHONE`, из статистики исключён.
+- Контрольный тон 1 кГц в петле ноутбука не обнаружен (когерентная амплитуда −46.0 dBFS во время тона против −47.4 / −46.6 до и после) — следствие нерабочего микрофона, а не измерение динамика. Windows при этом доводит сигнал до endpoint: пик-метр −10.7 dBFS.
+- Тесты: Python **499 passed**; Android **73 debug + 73 release**, failures 0; кросс-проверка Python ↔ Kotlin 4/4, преамбула 32/32, CRC совпал. APK: 3 474 862 байта, SHA-256 `17F5F0B1…C782E3F`.
+- Android не подключён: `adb devices` пуст, MTP-устройства нет. Установка APK, маршрут микрофона, `RECORD_AUDIO` и контрольный тон Laptop → Android не проверены. Физических передач, WAV/JSON и PASS/FAIL SN-028 нет.
+- Отчёт: `acoustic-lab/results/sn028-preflight.md`. `dist/SilentNetwork-Desktop/` обновлён (`desktop_app.py`, `snlab/audio.py`), smoke-test exit 0.
+
 **Обновлено 2026-11-02 (Agent 1, интеграция SN-015):**
 
 - Android-ветка `agent1/sn015-android` (`5069513`) объединена в `agent1/m0-acoustic-lab` через `--no-ff`; merge commit `aba35cc`. Конфликтов нет. Android-файлы идентичны `5069513`, Windows-код идентичен `f497f66`.
@@ -211,8 +223,8 @@
 7. Утвердить план Acoustic Data Link v0 (`docs/acoustic-data-link-plan.md`): слышимый профиль `1200/2200 Гц`, 300 бод, как основной для первого доказательства передачи данных.
 8. Подтвердить приоритет направления Windows → Android, затем Android → Windows.
 9. Утвердить лимит payload 64 байта UTF-8 для v0.
-10. Утвердить пороги PASS из `docs/acoustic-data-link-plan.md` §9.4 или заменить их.
-11. Разрешить физический прогон SN-028 по протоколу `docs/sn028-physical-test-protocol.md` (Windows → Android, затем Android → Windows): нужны оба устройства, помещение и запись WAV/JSON; без фактических измерений PASS не заявляется.
+10. ~~Утвердить пороги PASS из `docs/acoustic-data-link-plan.md` §9.4~~ — утверждены Product Owner 2026-11-03 (30 см 10/10, 1 м ≥8/10, 3 м исследовательски).
+11. SN-028: физический прогон Laptop → Phone разрешён; нужен подключённый Android по USB с отладкой (сейчас `adb devices` пуст). Phone → Laptop — `PENDING EXTERNAL MICROPHONE`; нужен рабочий проводной или USB-микрофон ноутбука.
 
 ## 6. Журнал изменений
 
@@ -238,6 +250,7 @@
 | 2026-11-03 | Agent 1 | SN-026: Android BFSK-модем и Frame v1, `audiolab/datalink/*`, `DataLinkCodec`, карточка «Передача данных», `DataLinkVectorsTest`/`DataLinkStateTest`; Android 73+73 теста, failures 0; `assembleDebug` успешен; APK в `dist/`; физика PENDING | Версия 2.8 |
 | 2026-11-03 | Agent 1 | SN-027: `cross_check_android.py` + `CrossLanguageTest`, 4/4 кейса Python ↔ Kotlin в обе стороны, преамбула 32/32, CRC совпал; отчёт `acoustic-lab/results/sn027-cross-check.md`; SN-028 → BLOCKED до физического прогона | Версия 2.8 |
 | 2026-11-03 | Agent 1 | SN-026 и SN-027 закоммичены раздельно (`fa54323`, `8010185`); подготовлен протокол `docs/sn028-physical-test-protocol.md`; `dist/SilentNetwork-Desktop/` обновлён и проверен smoke-тестом, `dist/SilentNetwork-Android.apk` приведён к текущей сборке; SN-028 остаётся BLOCKED | Версия 2.8 |
+| 2026-11-03 | Agent 1 | SN-028 preflight: `sn028_preflight.py`, безопасный автовыбор устройств (встроенное вместо Bluetooth), тесты 10 + обновление SN-015; Python 499 passed; Android 73+73; кросс-проверка 4/4; отчёт `acoustic-lab/results/sn028-preflight.md`; Laptop → Phone BLOCKED (нет Android), Phone → Laptop PENDING EXTERNAL MICROPHONE | Версия 2.9 |
 
 ## 7. Шаблон добавления задачи
 
