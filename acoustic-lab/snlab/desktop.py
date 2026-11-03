@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import re
 import shutil
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -277,7 +278,13 @@ class PhoneAnalysisRecord:
 
 
 def default_results_dir() -> Path:
-    """`acoustic-lab/results/hardware_calibration` независимо от текущего каталога."""
+    """`acoustic-lab/results/hardware_calibration` независимо от текущего каталога.
+
+    В собранном EXE (`sys.frozen`) исходный каталог недоступен: результаты
+    сохраняются рядом с исполняемым файлом, а не во временном `_MEIPASS`.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "results" / "hardware_calibration"
     return Path(__file__).resolve().parent.parent / "results" / "hardware_calibration"
 
 

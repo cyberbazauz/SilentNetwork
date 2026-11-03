@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -435,7 +436,13 @@ def receive_data(
 
 
 def default_results_dir() -> Path:
-    """Тот же каталог результатов, что и у остальных тестов Desktop Lab."""
+    """Тот же каталог результатов, что и у остальных тестов Desktop Lab.
+
+    В собранном EXE результаты лежат рядом с `.exe`, а не во временном
+    распакованном каталоге PyInstaller.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "results" / "hardware_calibration"
     return Path(__file__).resolve().parent.parent / "results" / "hardware_calibration"
 
 
