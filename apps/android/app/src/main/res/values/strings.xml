@@ -83,6 +83,42 @@
     <string name="audiolab_quick_launch">Открыть Audio Lab</string>
     <string name="audiolab_timer_format">%1$s / %2$s</string>
 
+    <!-- Data link -->
+    <string name="datalink_title">Передача данных</string>
+    <string name="datalink_desc">Короткий текст через звук: Frame v1 и BFSK, до 64 байт UTF-8. CRC-16 обнаруживает ошибки, но не подтверждает отправителя.</string>
+    <string name="datalink_message_label">Сообщение</string>
+    <string name="datalink_message_hint">До 64 байт UTF-8, например: Привет</string>
+    <string name="datalink_profile_label">Профиль сигнала</string>
+    <string name="datalink_tx_title">Передать сообщение</string>
+    <string name="datalink_rx_title">Принять сообщение</string>
+    <string name="datalink_rx_desc">Включите передачу на ноутбуке и нажмите «Записать и принять». Запись должна целиком содержать кадр.</string>
+    <string name="datalink_btn_create">Создать сообщение</string>
+    <string name="datalink_btn_play">Воспроизвести</string>
+    <string name="datalink_btn_stop">Стоп</string>
+    <string name="datalink_btn_record">Записать и принять</string>
+    <string name="datalink_btn_stop_record">Остановить запись</string>
+    <string name="datalink_btn_export_wav">Сохранить WAV</string>
+    <string name="datalink_btn_export_json">Сохранить отчёт</string>
+    <string name="datalink_tx_status_idle">Сообщение ещё не создано</string>
+    <string name="datalink_rx_status_idle">Готово к записи</string>
+    <string name="datalink_rx_text_idle">Принятый текст появится здесь</string>
+    <string name="datalink_rx_metrics_idle">Параметры записи: --</string>
+    <string name="datalink_verdict_idle">Приём ещё не выполнялся</string>
+    <string name="datalink_verdict_hint_idle">Запишите передачу с ноутбука, и приложение проверит кадр и CRC.</string>
+    <string name="datalink_play_dialog_title">Воспроизвести сообщение?</string>
+    <string name="datalink_play_dialog_msg">Через динамик телефона будет передан текст «%1$s» профилем %2$s.\n\nПродолжить?</string>
+    <string name="datalink_rx_duration_label">Длительность записи</string>
+    <string name="datalink_play_started">Воспроизведение сообщения…</string>
+    <string name="datalink_play_finished">Воспроизведение завершено. Это не подтверждает приём.</string>
+    <string name="datalink_play_stopped">Воспроизведение остановлено</string>
+    <string name="datalink_record_started">Идёт запись сигнала…</string>
+    <string name="datalink_record_saved">Запись сохранена, проверяем кадр…</string>
+    <string name="datalink_record_cancelled">Запись остановлена вручную. Приём не выполнен.</string>
+    <string name="datalink_permission_needed">Для записи требуется доступ к микрофону</string>
+    <string name="datalink_tx_not_created">Сначала создайте сообщение</string>
+    <string name="datalink_no_received_text">Текст не принят</string>
+    <string name="datalink_setup_hint">Проверьте, что Windows и Android используют одинаковый профиль сигнала.</string>
+
     <!-- Status -->
     <string name="status_title">SilentNetwork</string>
     <string name="status_subtitle">Передача данных через звук</string>

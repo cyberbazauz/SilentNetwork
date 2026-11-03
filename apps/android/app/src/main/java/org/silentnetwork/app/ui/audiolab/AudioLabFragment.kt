@@ -24,10 +24,13 @@ import org.silentnetwork.app.audiolab.audio.AndroidAudioRecorderEngine
 import org.silentnetwork.app.audiolab.audio.AudioEffectsInspector
 import org.silentnetwork.app.audiolab.audio.AudioPlayerEngine
 import org.silentnetwork.app.audiolab.audio.AudioRecorderEngine
+import org.silentnetwork.app.audiolab.datalink.BfskProfile
+import org.silentnetwork.app.audiolab.datalink.DataLinkCodec
 import org.silentnetwork.app.audiolab.dsp.AudioAnalyzer
 import org.silentnetwork.app.audiolab.dsp.SignalGenerator
 import org.silentnetwork.app.audiolab.dsp.WavFileHandler
 import org.silentnetwork.app.audiolab.presentation.AudioLabState
+import org.silentnetwork.app.audiolab.presentation.DataLinkState
 import org.silentnetwork.app.audiolab.reporting.CalibrationJsonReport
 import org.silentnetwork.app.databinding.FragmentAudioLabBinding
 import java.io.ByteArrayInputStream
@@ -64,6 +67,14 @@ class AudioLabFragment : Fragment() {
     private var activeTestId: String? = null
     private var receiverState: AudioLabState.ReceiverUiState = AudioLabState.ReceiverUiState.READY
 
+    // Data link state (SN-026).
+    private var dataLinkMessage: DataLinkCodec.DataMessage? = null
+    private var lastDataLinkWavFile: File? = null
+    private var lastDataLinkReportJson: String? = null
+    private var dataLinkArtifactLabel: String? = null
+    private var pendingDataLinkRecord = false
+    private val dataLinkExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     // Document Pickers & Permission Launchers
     private val requestRecordPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -72,7 +83,12 @@ class AudioLabFragment : Fragment() {
         if (isGranted) {
             setReceiverState(AudioLabState.ReceiverUiState.READY)
             Toast.makeText(requireContext(), "Разрешение на микрофон предоставлено", Toast.LENGTH_SHORT).show()
+            if (pendingDataLinkRecord) {
+                pendingDataLinkRecord = false
+                startDataLinkRecording()
+            }
         } else {
+            pendingDataLinkRecord = false
             setReceiverState(AudioLabState.ReceiverUiState.PERMISSION_REQUIRED)
             Toast.makeText(requireContext(), "Для записи тестового сигнала требуется разрешение", Toast.LENGTH_LONG).show()
         }
@@ -110,6 +126,22 @@ class AudioLabFragment : Fragment() {
         }
     }
 
+    private val createDataLinkWavLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("audio/wav")
+    ) { uri ->
+        if (uri != null && lastDataLinkWavFile != null) {
+            exportFileToUri(lastDataLinkWavFile!!, uri)
+        }
+    }
+
+    private val createDataLinkJsonLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null && lastDataLinkReportJson != null) {
+            exportTextToUri(lastDataLinkReportJson!!, uri, "JSON-отчёт сохранён")
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -125,6 +157,7 @@ class AudioLabFragment : Fragment() {
         setupTransmitterSection()
         setupReceiverSection()
         setupAnalyzerSection()
+        setupDataLinkSection()
         setupCollapsibleSections()
         checkHardwareEffects()
         checkMicPermissionStatus()
@@ -183,6 +216,11 @@ class AudioLabFragment : Fragment() {
         _binding = null
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        dataLinkExecutor.shutdownNow()
+    }
+
     private fun stopAudioOperations() {
         try {
             if (playerEngine.isPlaying) {
@@ -196,6 +234,13 @@ class AudioLabFragment : Fragment() {
                 recorderEngine.stop()
             }
         } catch (_: Throwable) {
+        }
+
+        if (_binding != null) {
+            binding.btnDatalinkPlay.isEnabled = dataLinkMessage != null
+            binding.btnDatalinkStop.isEnabled = false
+            binding.btnDatalinkRecord.isEnabled = true
+            binding.btnDatalinkStopRecord.isEnabled = false
         }
     }
 
@@ -429,6 +474,308 @@ class AudioLabFragment : Fragment() {
             binding.btnStopTx.isEnabled = false
             binding.tvTxStatus.text = "Сбой запуска: ${result.exceptionOrNull()?.message}"
         }
+    }
+
+    // ==========================================
+    // SECTION A2: DATA LINK (SN-026)
+    // ==========================================
+
+    private fun setupDataLinkSection() {
+        val profileLabels = DataLinkState.PROFILE_OPTIONS.map { (_, profile) ->
+            DataLinkState.profileLabel(profile)
+        }
+        binding.spinnerDatalinkProfile.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            profileLabels
+        )
+        val defaultProfileIndex = DataLinkState.PROFILE_OPTIONS
+            .indexOfFirst { (name, _) -> name == DataLinkState.DEFAULT_PROFILE }
+            .coerceAtLeast(0)
+        binding.spinnerDatalinkProfile.setSelection(defaultProfileIndex)
+
+        val durationLabels = DataLinkState.RECEIVER_DURATIONS_SEC.map { "$it сек" }
+        binding.spinnerDatalinkRxDuration.adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_dropdown_item,
+            durationLabels
+        )
+        binding.spinnerDatalinkRxDuration.setSelection(
+            DataLinkState.RECEIVER_DURATIONS_SEC
+                .indexOf(DataLinkState.DEFAULT_RECEIVER_DURATION_SEC)
+                .coerceAtLeast(0)
+        )
+
+        binding.btnDatalinkCreate.setOnClickListener { createDataLinkMessage() }
+        binding.btnDatalinkPlay.setOnClickListener { showDataLinkPlayDialog() }
+        binding.btnDatalinkStop.setOnClickListener {
+            playerEngine.stop()
+            binding.btnDatalinkPlay.isEnabled = dataLinkMessage != null
+            binding.btnDatalinkStop.isEnabled = false
+            binding.tvDatalinkTxStatus.setText(R.string.datalink_play_stopped)
+        }
+        binding.btnDatalinkRecord.setOnClickListener { requestDataLinkRecording() }
+        binding.btnDatalinkStopRecord.setOnClickListener {
+            // Ручная остановка — это отмена записи, а не приём: AudioRecord
+            // освобождается сразу, частичный буфер не декодируется. Приём
+            // выполняется только после полной длительности записи.
+            recorderEngine.stop()
+            binding.btnDatalinkRecord.isEnabled = true
+            binding.btnDatalinkStopRecord.isEnabled = false
+            binding.tvDatalinkRxStatus.setText(R.string.datalink_record_cancelled)
+        }
+        binding.btnDatalinkExportWav.setOnClickListener {
+            createDataLinkWavLauncher.launch(lastDataLinkWavFile?.name ?: "datalink.wav")
+        }
+        binding.btnDatalinkExportJson.setOnClickListener {
+            createDataLinkJsonLauncher.launch(
+                dataLinkArtifactLabel?.replace(".wav", "_report.json") ?: "datalink_report.json"
+            )
+        }
+    }
+
+    private fun selectedDataLinkProfile(): BfskProfile {
+        val index = binding.spinnerDatalinkProfile.selectedItemPosition.coerceAtLeast(0)
+        return DataLinkState.PROFILE_OPTIONS.getOrElse(index) {
+            DataLinkState.PROFILE_OPTIONS[0]
+        }.second
+    }
+
+    private fun createDataLinkMessage() {
+        val text = binding.etDatalinkMessage.text?.toString().orEmpty()
+        val profile = selectedDataLinkProfile()
+        try {
+            val (wavBytes, message) = DataLinkCodec.encodeToWav(text, profile)
+            val filename = "datalink_tx_${profile.name}.wav"
+            val file = File(requireContext().cacheDir, filename)
+            file.writeBytes(wavBytes)
+            dataLinkMessage = message
+            lastDataLinkWavFile = file
+            lastDataLinkReportJson = DataLinkCodec.buildTransmitReport(
+                message,
+                filename,
+                DataLinkCodec.sha256Hex(wavBytes)
+            )
+            dataLinkArtifactLabel = filename
+            binding.btnDatalinkPlay.isEnabled = true
+            binding.btnDatalinkStop.isEnabled = false
+            binding.btnDatalinkExportWav.isEnabled = true
+            binding.btnDatalinkExportJson.isEnabled = true
+            binding.tvDatalinkTxStatus.text = String.format(
+                Locale.US,
+                "Создано: %s · %d байт UTF-8 · %d бит · %.2f с",
+                filename,
+                message.payload.size,
+                message.frame.totalBits,
+                message.durationS
+            )
+            Toast.makeText(requireContext(), "Сообщение закодировано (WAV создан)", Toast.LENGTH_SHORT).show()
+        } catch (t: Throwable) {
+            binding.tvDatalinkTxStatus.text = "Ошибка: ${t.message}"
+            Toast.makeText(requireContext(), t.message ?: "Не удалось создать сообщение", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showDataLinkPlayDialog() {
+        val message = dataLinkMessage
+        if (message == null) {
+            Toast.makeText(requireContext(), R.string.datalink_tx_not_created, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val msg = getString(
+            R.string.datalink_play_dialog_msg,
+            message.text,
+            DataLinkState.profileLabel(message.profile)
+        )
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.datalink_play_dialog_title)
+            .setMessage(msg)
+            .setPositiveButton("Воспроизвести") { _, _ ->
+                startDataLinkPlayback(message)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun startDataLinkPlayback(message: DataLinkCodec.DataMessage) {
+        if (recorderEngine.isRecording) {
+            Toast.makeText(requireContext(), "Сначала остановите запись", Toast.LENGTH_SHORT).show()
+            return
+        }
+        binding.btnDatalinkPlay.isEnabled = false
+        binding.btnDatalinkStop.isEnabled = true
+        binding.tvDatalinkTxStatus.setText(R.string.datalink_play_started)
+
+        val result = playerEngine.playPcm(
+            pcmData = message.pcmBytes,
+            sampleRate = message.sampleRate,
+            onComplete = {
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.btnDatalinkPlay.isEnabled = dataLinkMessage != null
+                    binding.btnDatalinkStop.isEnabled = false
+                    binding.tvDatalinkTxStatus.setText(R.string.datalink_play_finished)
+                }
+            },
+            onError = { error ->
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.btnDatalinkPlay.isEnabled = dataLinkMessage != null
+                    binding.btnDatalinkStop.isEnabled = false
+                    binding.tvDatalinkTxStatus.text = "Ошибка воспроизведения: ${error.message}"
+                }
+            }
+        )
+        if (result.isFailure) {
+            binding.btnDatalinkPlay.isEnabled = dataLinkMessage != null
+            binding.btnDatalinkStop.isEnabled = false
+            binding.tvDatalinkTxStatus.text = "Сбой запуска: ${result.exceptionOrNull()?.message}"
+        }
+    }
+
+    private fun requestDataLinkRecording() {
+        if (!hasRecordAudioPermission()) {
+            pendingDataLinkRecord = true
+            Toast.makeText(requireContext(), R.string.datalink_permission_needed, Toast.LENGTH_SHORT).show()
+            requestRecordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startDataLinkRecording()
+    }
+
+    private fun startDataLinkRecording() {
+        if (_binding == null) return
+        if (recorderEngine.isRecording) {
+            Toast.makeText(requireContext(), "Запись уже идёт", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (playerEngine.isPlaying) {
+            playerEngine.stop()
+        }
+
+        val profile = selectedDataLinkProfile()
+        val durationIndex = binding.spinnerDatalinkRxDuration.selectedItemPosition.coerceAtLeast(0)
+        val durationSec = DataLinkState.RECEIVER_DURATIONS_SEC[durationIndex]
+
+        binding.btnDatalinkRecord.isEnabled = false
+        binding.btnDatalinkStopRecord.isEnabled = true
+        binding.tvDatalinkRxStatus.setText(R.string.datalink_record_started)
+        binding.tvDatalinkVerdict.setText(R.string.datalink_verdict_idle)
+        binding.tvDatalinkVerdictHint.setText(R.string.datalink_verdict_hint_idle)
+        binding.tvDatalinkVerdict.setTextColor(
+            ContextCompat.getColor(requireContext(), R.color.text_primary)
+        )
+        binding.tvDatalinkRxText.setText(R.string.datalink_rx_text_idle)
+        binding.tvDatalinkRxMetrics.setText(R.string.datalink_rx_metrics_idle)
+
+        val result = recorderEngine.startRecording(
+            sampleRate = profile.sampleRate,
+            durationSeconds = durationSec,
+            onProgress = { elapsed ->
+                mainHandler.post {
+                    _binding?.tvDatalinkRxStatus?.text = String.format(
+                        Locale.US,
+                        "Запись: %.1f / %d с",
+                        elapsed,
+                        durationSec
+                    )
+                }
+            },
+            onComplete = { pcmData, actualRate ->
+                mainHandler.post {
+                    handleDataLinkRecording(pcmData, actualRate, profile)
+                }
+            },
+            onError = { error ->
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.btnDatalinkRecord.isEnabled = true
+                    binding.btnDatalinkStopRecord.isEnabled = false
+                    binding.tvDatalinkRxStatus.text =
+                        "Ошибка записи: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        )
+        if (result.isFailure) {
+            binding.btnDatalinkRecord.isEnabled = true
+            binding.btnDatalinkStopRecord.isEnabled = false
+            binding.tvDatalinkRxStatus.text =
+                "Сбой запуска: ${result.exceptionOrNull()?.message}"
+        }
+    }
+
+    private fun handleDataLinkRecording(
+        pcmData: ByteArray,
+        actualRate: Int,
+        profile: BfskProfile
+    ) {
+        if (_binding == null) return
+        binding.btnDatalinkRecord.isEnabled = true
+        binding.btnDatalinkStopRecord.isEnabled = false
+
+        if (pcmData.isEmpty()) {
+            binding.tvDatalinkRxStatus.text = "Запись не содержит отсчётов"
+            return
+        }
+
+        binding.tvDatalinkRxStatus.setText(R.string.datalink_record_saved)
+        val appContext = requireContext().applicationContext
+        val filename = "datalink_rx_${profile.name}.wav"
+
+        dataLinkExecutor.execute {
+            try {
+                val wavBytes = WavFileHandler.encodePcm16Wav(pcmData, actualRate, 1)
+                val file = File(appContext.cacheDir, filename)
+                file.writeBytes(wavBytes)
+                val sha256 = DataLinkCodec.sha256Hex(wavBytes)
+                val received = DataLinkCodec.decodeFromWav(
+                    wavBytes,
+                    profile,
+                    minPreambleMatches = DataLinkState.ACOUSTIC_MIN_PREAMBLE
+                )
+                val report = DataLinkCodec.buildReceiveReport(received, filename, sha256)
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    lastDataLinkWavFile = file
+                    lastDataLinkReportJson = report
+                    dataLinkArtifactLabel = filename
+                    binding.btnDatalinkExportWav.isEnabled = true
+                    binding.btnDatalinkExportJson.isEnabled = true
+                    binding.tvDatalinkRxStatus.text = "Запись: $filename"
+                    renderDataLinkResult(received)
+                }
+            } catch (t: Throwable) {
+                mainHandler.post {
+                    if (_binding == null) return@post
+                    binding.tvDatalinkRxStatus.text = "Ошибка обработки записи: ${t.message}"
+                }
+            }
+        }
+    }
+
+    private fun renderDataLinkResult(received: DataLinkCodec.ReceivedMessage) {
+        binding.tvDatalinkVerdict.text = DataLinkState.verdictTitle(received)
+        binding.tvDatalinkVerdictHint.text = DataLinkState.verdictHint(received)
+        val color = when {
+            received.ok -> R.color.accent_emerald
+            received.errorType == "signal_not_found" -> R.color.accent_amber
+            else -> R.color.accent_rose
+        }
+        binding.tvDatalinkVerdict.setTextColor(ContextCompat.getColor(requireContext(), color))
+        binding.tvDatalinkRxText.text = received.text
+            ?: getString(R.string.datalink_no_received_text)
+
+        val details = buildString {
+            append(DataLinkState.recordingSummary(received))
+            received.preambleMatches?.let { append("\nПреамбула: $it/32") }
+            if (received.ok) {
+                append("\nCRC-16: совпал · payload: ${received.payloadBytes} байт")
+                received.errorType?.let { append("\nТип ошибки: $it") }
+            } else {
+                received.errorType?.let { append("\nТип ошибки: $it") }
+            }
+        }
+        binding.tvDatalinkRxMetrics.text = details
     }
 
     // ==========================================
@@ -872,6 +1219,17 @@ class AudioLabFragment : Fragment() {
                 }
             }
             Toast.makeText(requireContext(), "WAV сохранён в выбранную папку", Toast.LENGTH_SHORT).show()
+        } catch (t: Throwable) {
+            Toast.makeText(requireContext(), "Ошибка экспорта: ${t.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exportTextToUri(text: String, destinationUri: Uri, successMessage: String) {
+        try {
+            requireContext().contentResolver.openOutputStream(destinationUri)?.use { out ->
+                out.write(text.toByteArray(Charsets.UTF_8))
+            }
+            Toast.makeText(requireContext(), successMessage, Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
             Toast.makeText(requireContext(), "Ошибка экспорта: ${t.message}", Toast.LENGTH_LONG).show()
         }
