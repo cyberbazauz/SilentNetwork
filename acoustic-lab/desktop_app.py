@@ -41,11 +41,13 @@ try:
     from snlab import audio
     from snlab import datalink_desktop as data_desktop
     from snlab import desktop, playback
+    from snlab import file_transfer_desktop as file_desktop
 except ImportError as _dependency_exc:  # pragma: no cover - зависит от окружения
     audio = None  # type: ignore[assignment]
     data_desktop = None  # type: ignore[assignment]
     desktop = None  # type: ignore[assignment]
     playback = None  # type: ignore[assignment]
+    file_desktop = None  # type: ignore[assignment]
     _DEPENDENCY_ERROR: Exception | None = _dependency_exc
 else:
     _DEPENDENCY_ERROR = None
@@ -188,6 +190,7 @@ class DesktopApp:
         recorder: Callable[..., Any] | None = None,
         confirm_playback: Callable[[Any, Any], bool] | None = None,
         confirm_data_playback: Callable[[Any, Any], bool] | None = None,
+        confirm_file_playback: Callable[[Any, Any], bool] | None = None,
         analyzer: Callable[..., Any] | None = None,
     ) -> None:
         if desktop is None or playback is None:
@@ -216,6 +219,7 @@ class DesktopApp:
         )
         self.recorder = recorder or audio.record_ambient
         self.confirm_data_playback = confirm_data_playback or self._ask_confirm_data
+        self.confirm_file_playback = confirm_file_playback or self._ask_confirm_file
 
         self.devices: list[Any] = []
         self.selected_device: Any | None = None
@@ -240,12 +244,26 @@ class DesktopApp:
         self._data_play_queue: queue.Queue[tuple[str, Any]] | None = None
         self._data_record_queue: queue.Queue[tuple[str, Any]] | None = None
 
+        self.file_input_devices: list[Any] = []
+        self.file_selected_input: Any | None = None
+        self.file_source_var = tk.StringVar(value="")
+        self.file_profile_var = tk.StringVar(value="data-audible")
+        self.file_duration_var = tk.StringVar(value="30")
+        self.file_generated = None
+        self.file_received = None
+        self.file_playing = False
+        self.file_recording = False
+        self._file_play_queue: queue.Queue[tuple[str, Any]] | None = None
+        self._file_record_queue: queue.Queue[tuple[str, Any]] | None = None
+
         _configure_style(root)
         self._build_ui()
         self._update_playback_state()
         self.refresh_devices()
         self.refresh_data_inputs()
+        self.refresh_file_inputs()
         self._update_data_play_state()
+        self._update_file_play_state()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------ UI
@@ -348,6 +366,13 @@ class DesktopApp:
         data_band.columnconfigure(1, weight=1, uniform="data")
         self._build_data_send_section(data_band)
         self._build_data_receive_section(data_band)
+
+        file_band = ttk.Frame(content)
+        file_band.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(14, 0))
+        file_band.columnconfigure(0, weight=1, uniform="file")
+        file_band.columnconfigure(1, weight=1, uniform="file")
+        self._build_file_send_section(file_band)
+        self._build_file_receive_section(file_band)
 
     def _on_content_scroll(self, first: str, last: str) -> None:
         self.content_scroll.set(first, last)
@@ -922,7 +947,7 @@ class DesktopApp:
             play_row,
             text="Стоп",
             style="Danger.TButton",
-            command=self.request_stop,
+            command=self.request_data_stop,
             state="disabled",
         )
         self.data_stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
@@ -1052,6 +1077,234 @@ class DesktopApp:
         )
         self.data_record_json.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
+    def _build_file_send_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Передать файл",
+            "Файл до 4096 байт: MANIFEST / DATA / END внутри кадров Frame v1",
+        )
+        outer.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        body.columnconfigure(1, weight=1)
+
+        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(12, 2), padx=(0, 10)
+        )
+        ttk.Combobox(
+            body,
+            textvariable=self.file_profile_var,
+            values=sorted(file_desktop.DATA_PROFILE_NAMES)
+            if file_desktop is not None
+            else ["data-audible", "data-robust"],
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(12, 2))
+
+        ttk.Label(body, text="Файл", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(body, textvariable=self.file_source_var).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(
+            body,
+            text=(
+                "Один файл 0…4096 байт, имя до 40 байт UTF-8. "
+                "SHA-256 проверяет целостность, но не аутентифицирует отправителя."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        buttons = ttk.Frame(body, style="Card.TFrame")
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 6))
+        buttons.columnconfigure(0, weight=1)
+        buttons.columnconfigure(1, weight=1)
+        ttk.Button(
+            buttons,
+            text="Выбрать файл…",
+            style="Secondary.TButton",
+            command=self.choose_file_source,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(
+            buttons,
+            text="Создать WAV",
+            style="Accent.TButton",
+            command=self.generate_file_message,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.file_generated_info = ttk.Label(
+            body,
+            text="WAV с файлом ещё не создан.",
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.file_generated_info.grid(row=4, column=0, columnspan=2, sticky="ew")
+
+        play_row = ttk.Frame(body, style="Card.TFrame")
+        play_row.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        play_row.columnconfigure(0, weight=1)
+        play_row.columnconfigure(1, weight=1)
+        self.file_play_button = ttk.Button(
+            play_row,
+            text="Воспроизвести",
+            style="Accent.TButton",
+            command=self.request_file_playback,
+            state="disabled",
+        )
+        self.file_play_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.file_stop_button = ttk.Button(
+            play_row,
+            text="Стоп",
+            style="Danger.TButton",
+            command=self.request_file_stop,
+            state="disabled",
+        )
+        self.file_stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.file_play_hint = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.file_play_hint.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
+        self.file_play_status = ttk.Label(
+            body,
+            text="Воспроизведения не было.",
+            style="Card.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.file_play_status.grid(
+            row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0)
+        )
+
+        self.file_play_json = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.file_play_json.grid(row=8, column=0, columnspan=2, sticky="ew")
+
+    def _build_file_receive_section(self, parent: Any) -> None:
+        outer, body = self._card(
+            parent,
+            "Принять файл",
+            "Запись с микрофона, сборка файла и проверка SHA-256",
+        )
+        outer.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        body.columnconfigure(1, weight=1)
+
+        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(12, 2), padx=(0, 10)
+        )
+        ttk.Combobox(
+            body,
+            textvariable=self.file_profile_var,
+            values=sorted(file_desktop.DATA_PROFILE_NAMES)
+            if file_desktop is not None
+            else ["data-audible", "data-robust"],
+            state="readonly",
+        ).grid(row=0, column=1, sticky="ew", pady=(12, 2))
+
+        ttk.Label(body, text="Микрофон", style="Field.TLabel").grid(
+            row=1, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        self.file_input_box = ttk.Combobox(body, state="readonly")
+        self.file_input_box.grid(row=1, column=1, sticky="ew", pady=2)
+        self.file_input_box.bind(
+            "<<ComboboxSelected>>", self._on_file_input_selected
+        )
+
+        ttk.Label(body, text="Запись, с", style="Field.TLabel").grid(
+            row=2, column=0, sticky="w", pady=2, padx=(0, 10)
+        )
+        ttk.Entry(body, textvariable=self.file_duration_var).grid(
+            row=2, column=1, sticky="ew", pady=2
+        )
+
+        ttk.Label(
+            body,
+            text=(
+                "Файл 100 байт звучит около 11 с, 4096 байт — около 182 с. "
+                "Запись должна покрыть весь сигнал и паузы."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        buttons = ttk.Frame(body, style="Card.TFrame")
+        buttons.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 6))
+        buttons.columnconfigure(0, weight=1)
+        buttons.columnconfigure(1, weight=1)
+        ttk.Button(
+            buttons,
+            text="Обновить микрофоны",
+            style="Secondary.TButton",
+            command=self.refresh_file_inputs,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.file_record_button = ttk.Button(
+            buttons,
+            text="Записать и собрать",
+            style="Accent.TButton",
+            command=self.record_and_decode_file,
+        )
+        self.file_record_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.file_record_status = ttk.Label(
+            body,
+            text="Запись ещё не выполнялась.",
+            style="CardMuted.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.file_record_status.grid(row=5, column=0, columnspan=2, sticky="ew")
+
+        self.file_verdict_panel = tk.Frame(body, bg=COLOR_NEUTRAL_BG)
+        self.file_verdict_panel.grid(
+            row=6, column=0, columnspan=2, sticky="ew", pady=(10, 8)
+        )
+        self.file_verdict_panel.columnconfigure(0, weight=1)
+        self.file_verdict_label = tk.Label(
+            self.file_verdict_panel,
+            text="Файл ещё не принимался",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+            padx=14,
+            pady=10,
+        )
+        self.file_verdict_label.grid(row=0, column=0, sticky="ew")
+        self.file_verdict_hint = tk.Label(
+            self.file_verdict_panel,
+            text="Нажмите «Записать и собрать», когда прозвучит файл.",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=440,
+            padx=14,
+            pady=0,
+        )
+        self.file_verdict_hint.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        self.file_received_info = ttk.Label(
+            body,
+            text="",
+            style="Value.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.file_received_info.grid(row=7, column=0, columnspan=2, sticky="ew")
+
+        self.file_record_json = ttk.Label(
+            body, text="", style="CardMuted.TLabel", wraplength=460, justify="left"
+        )
+        self.file_record_json.grid(
+            row=8, column=0, columnspan=2, sticky="ew", pady=(4, 0)
+        )
+
     # --------------------------------------------------------- data actions
 
     def refresh_data_inputs(self) -> None:
@@ -1171,12 +1424,13 @@ class DesktopApp:
             and device is not None
             and self.engine is not None
             and not self.data_playing
+            and not self.file_playing
             and not self._playing
         )
         self.data_play_button.configure(state="normal" if allowed else "disabled")
         self.data_stop_button.configure(
             state="normal"
-            if (self.data_playing or self._playing) and self.engine is not None
+            if self.data_playing and self.engine is not None
             else "disabled"
         )
 
@@ -1214,7 +1468,7 @@ class DesktopApp:
                 text="Воспроизведение недоступно: аудиодвижок не загружен."
             )
             return False
-        if self.data_playing or self._playing:
+        if self.data_playing or self.file_playing or self._playing:
             self.data_play_status.configure(text="Воспроизведение уже идёт.")
             return False
         if not self.confirm_data_playback(self.data_generated, self.selected_device):
@@ -1230,6 +1484,7 @@ class DesktopApp:
         self.data_play_status.configure(text="Воспроизведение сообщения выполняется…")
         self.data_play_json.configure(text="")
         self._update_data_play_state()
+        self._update_file_play_state()
 
         def worker() -> None:
             try:
@@ -1250,6 +1505,12 @@ class DesktopApp:
         self.root.after(100, self._poll_data_playback)
         return True
 
+    def request_data_stop(self) -> None:
+        if self.engine is None or not self.data_playing:
+            return
+        self.data_play_status.configure(text="Останавливаю воспроизведение…")
+        self.engine.stop()
+
     def _poll_data_playback(self) -> None:
         if self._data_play_queue is None:
             return
@@ -1267,6 +1528,7 @@ class DesktopApp:
                 text=f"PLAY не выполнен: {type(payload).__name__}: {payload}"
             )
         self._update_data_play_state()
+        self._update_file_play_state()
 
     def _on_data_playback_record(self, record: Any) -> None:
         if record.status == "completed" and record.performed:
@@ -1449,6 +1711,506 @@ class DesktopApp:
     def _set_data_verdict(self, title: str, hint: str, color: str) -> None:
         self.data_verdict_label.configure(text=title, foreground=color)
         self.data_verdict_hint.configure(text=hint)
+        self._request_content_sync()
+
+    # --------------------------------------------------------- file actions
+
+    def refresh_file_inputs(self) -> None:
+        if file_desktop is None:
+            self.file_record_status.configure(
+                text="Модуль передачи файлов недоступен: проверьте зависимости."
+            )
+            return
+        try:
+            devices = self.input_device_lister()
+        except Exception as exc:  # noqa: BLE001 - отказ аудиобэкенда показываем
+            self.file_record_status.configure(
+                text=f"Не удалось получить микрофоны: {type(exc).__name__}: {exc}"
+            )
+            return
+        self.file_input_devices = [device for device in devices if device.is_input]
+        labels = [
+            f"[{device.index}] {device.name}" for device in self.file_input_devices
+        ]
+        self.file_input_box.configure(values=labels)
+        if not labels:
+            self.file_selected_input = None
+            self.file_input_box.set("")
+            self.file_record_status.configure(
+                text="Входных устройств не найдено. Проверьте микрофон Windows."
+            )
+            return
+        preferred = audio.select_preferred_device(self.file_input_devices, "input")
+        if preferred is None:
+            self.file_selected_input = None
+            self.file_input_box.set("")
+            self.file_record_status.configure(
+                text=(
+                    f"Найдено микрофонов: {len(labels)}. Автовыбор отключён: "
+                    "доступны только Bluetooth или виртуальные устройства. "
+                    "Подключите встроенный или USB-микрофон."
+                )
+            )
+            return
+        self.file_selected_input = preferred
+        position = self.file_input_devices.index(preferred)
+        self.file_input_box.current(position)
+        warning = audio.device_warning(preferred)
+        suffix = f" Внимание: {warning}" if warning else ""
+        self.file_record_status.configure(
+            text=f"Найдено микрофонов: {len(labels)}. Выбран: {preferred.name}.{suffix}"
+        )
+
+    def _on_file_input_selected(self, _event: Any | None = None) -> None:
+        position = self.file_input_box.current()
+        if 0 <= position < len(self.file_input_devices):
+            device = self.file_input_devices[position]
+            self.file_selected_input = device
+            warning = audio.device_warning(device)
+            if warning:
+                self.file_record_status.configure(
+                    text=f"[{device.index}] {device.name}. Внимание: {warning}"
+                )
+            else:
+                self.file_record_status.configure(
+                    text=f"[{device.index}] {device.name} выбран для записи."
+                )
+
+    def choose_file_source(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Выбрать файл для передачи",
+            filetypes=(("Все файлы", "*.*"),),
+            parent=self.root,
+        )
+        if not path:
+            return
+        self.file_source_var.set(path)
+        source = Path(path)
+        try:
+            size = source.stat().st_size
+        except OSError as exc:
+            self.file_generated_info.configure(text=f"Файл недоступен: {exc}")
+            return
+        limit = (
+            file_desktop.file_transfer.MAX_FILE_BYTES
+            if file_desktop is not None
+            else 4096
+        )
+        if size > limit:
+            self.file_generated_info.configure(
+                text=(
+                    f"Файл {source.name} занимает {size} байт и не входит "
+                    f"в лимит {limit} байт. Выберите файл меньше."
+                )
+            )
+            return
+        self.file_generated_info.configure(
+            text=f"Выбран файл: {source.name} · {size} байт. Нажмите «Создать WAV»."
+        )
+
+    def generate_file_message(self) -> None:
+        if file_desktop is None:
+            messagebox.showerror(
+                "Передача файла", "Модуль передачи файлов недоступен.", parent=self.root
+            )
+            return
+        source = self.file_source_var.get().strip()
+        if not source:
+            messagebox.showerror(
+                "Передача файла",
+                "Сначала выберите файл.",
+                parent=self.root,
+            )
+            return
+        try:
+            generated = file_desktop.generate_file_message(
+                source,
+                self.file_profile_var.get(),
+                self.results_dir,
+            )
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self.file_generated_info.configure(text=f"WAV не создан: {exc}")
+            messagebox.showerror("WAV не создан", str(exc), parent=self.root)
+            return
+        self.file_generated = generated
+        self.file_generated_info.configure(
+            text=(
+                f"Готово: {generated.filename} · {generated.file_size} байт · "
+                f"{generated.packet_count} пакетов (DATA {generated.total_chunks}) · "
+                f"{generated.file_duration_s:.2f} с\n"
+                f"Файл SHA-256: {generated.sha256}\n"
+                f"WAV: {generated.wav_path.name}"
+            )
+        )
+        self.file_play_status.configure(
+            text="WAV с файлом создан беззвучно. Воспроизведение не выполнялось."
+        )
+        self.file_play_json.configure(text="")
+        self._update_file_play_state()
+
+    def _update_file_play_state(self) -> None:
+        generated = self.file_generated
+        device = self.selected_device
+        if generated is None:
+            self.file_play_hint.configure(text="Сначала создайте WAV с файлом.")
+        elif device is None:
+            self.file_play_hint.configure(
+                text="Динамик не найден. Нажмите «Обновить список» выше."
+            )
+        elif self.file_playing:
+            self.file_play_hint.configure(
+                text="Идёт воспроизведение файла. «Стоп» прерывает его."
+            )
+        else:
+            self.file_play_hint.configure(
+                text="Перед стартом приложение попросит подтверждение."
+            )
+        allowed = (
+            generated is not None
+            and device is not None
+            and self.engine is not None
+            and not self.file_playing
+            and not self.data_playing
+            and not self._playing
+        )
+        self.file_play_button.configure(state="normal" if allowed else "disabled")
+        self.file_stop_button.configure(
+            state="normal"
+            if self.file_playing and self.engine is not None
+            else "disabled"
+        )
+
+    def _ask_confirm_file(self, generated: Any, device: Any) -> bool:
+        duration = generated.file_duration_s
+        warning = audio.device_warning(device)
+        warning_line = f"\n\nВнимание: {warning}" if warning else ""
+        return bool(
+            messagebox.askyesno(
+                "Подтверждение передачи файла",
+                (
+                    "Сейчас через выбранный динамик прозвучит файл.\n\n"
+                    f"Файл: {generated.filename} ({generated.file_size} байт)\n"
+                    f"Пакетов: {generated.packet_count} "
+                    f"(DATA {generated.total_chunks})\n"
+                    f"Профиль: {generated.profile.name}\n"
+                    f"Длительность: {duration:.2f} с\n"
+                    f"Устройство: {device.name}\n\n"
+                    "Файл не зашифрован и не аутентифицирован. "
+                    f"Продолжить?{warning_line}"
+                ),
+                parent=self.root,
+                icon="warning",
+            )
+        )
+
+    def request_file_playback(self) -> bool:
+        if file_desktop is None:
+            return False
+        if self.file_generated is None:
+            self.file_play_status.configure(text="Сначала создайте WAV с файлом.")
+            return False
+        if self.selected_device is None:
+            self.file_play_status.configure(
+                text="Сначала выберите динамик ноутбука."
+            )
+            return False
+        if self.engine is None:
+            self.file_play_status.configure(
+                text="Воспроизведение недоступно: аудиодвижок не загружен."
+            )
+            return False
+        if self.file_playing or self.data_playing or self._playing:
+            self.file_play_status.configure(text="Воспроизведение уже идёт.")
+            return False
+        if not self.confirm_file_playback(self.file_generated, self.selected_device):
+            self.file_play_status.configure(
+                text="Воспроизведение отменено пользователем; JSON не создавался."
+            )
+            return False
+
+        generated = self.file_generated
+        device = self.selected_device
+        self.file_playing = True
+        self._file_play_queue = queue.Queue()
+        self.file_play_status.configure(
+            text="Воспроизведение файла выполняется…"
+        )
+        self.file_play_json.configure(text="")
+        self._update_file_play_state()
+        self._update_data_play_state()
+
+        def worker() -> None:
+            try:
+                record = file_desktop.play_file_message(
+                    generated,
+                    device,
+                    engine=self.engine,
+                    hardware_test=True,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                assert self._file_play_queue is not None
+                self._file_play_queue.put(("error", exc))
+            else:
+                assert self._file_play_queue is not None
+                self._file_play_queue.put(("record", record))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(100, self._poll_file_playback)
+        return True
+
+    def request_file_stop(self) -> None:
+        if self.engine is None or not self.file_playing:
+            return
+        self.file_play_status.configure(text="Останавливаю воспроизведение…")
+        self.engine.stop()
+
+    def _poll_file_playback(self) -> None:
+        if self._file_play_queue is None:
+            return
+        try:
+            kind, payload = self._file_play_queue.get_nowait()
+        except queue.Empty:
+            if self.file_playing:
+                self.root.after(100, self._poll_file_playback)
+            return
+        self.file_playing = False
+        if kind == "record":
+            self._on_file_playback_record(payload)
+        else:
+            self.file_play_status.configure(
+                text=f"PLAY не выполнен: {type(payload).__name__}: {payload}"
+            )
+        self._update_file_play_state()
+        self._update_data_play_state()
+
+    def _on_file_playback_record(self, record: Any) -> None:
+        if record.status == "completed" and record.performed:
+            text = (
+                f"PLAY завершён: воспроизведено {record.frames_written} "
+                f"из {record.frames_total} отсчётов за {record.elapsed_s:.2f} с. "
+                "Приём этим не подтверждён."
+            )
+        elif record.status == "stopped":
+            text = (
+                "PLAY остановлен: файл прозвучал не полностью "
+                f"({record.frames_written} из {record.frames_total} отсчётов)."
+            )
+        else:
+            text = (
+                "PLAY завершился ошибкой: "
+                f"{record.error or 'причина не сообщена драйвером'}"
+            )
+        self.file_play_status.configure(text=text)
+        self.file_play_json.configure(text=f"JSON: {record.json_path}")
+
+    def record_and_decode_file(self) -> None:
+        if file_desktop is None:
+            return
+        if self.file_selected_input is None:
+            self.file_record_status.configure(
+                text="Сначала выберите микрофон и нажмите «Обновить микрофоны»."
+            )
+            return
+        if self.file_recording:
+            return
+        try:
+            duration = float(
+                self.file_duration_var.get().strip().replace(",", ".")
+            )
+        except ValueError:
+            messagebox.showerror(
+                "Длительность записи",
+                f"Ожидается число, получено {self.file_duration_var.get()!r}",
+                parent=self.root,
+            )
+            return
+
+        device = self.file_selected_input
+        profile = self.file_profile_var.get()
+        self.file_recording = True
+        self._file_record_queue = queue.Queue()
+        self.file_record_button.configure(state="disabled")
+        self.file_record_status.configure(
+            text=f"Идёт запись {duration:g} с. Сейчас должен прозвучать файл…"
+        )
+        self._set_file_verdict(
+            "Идёт запись", "Не закрывайте окно до завершения записи.", COLOR_MUTED
+        )
+        self.root.update_idletasks()
+
+        def worker() -> None:
+            try:
+                received = file_desktop.receive_file(
+                    profile,
+                    device,
+                    duration,
+                    self.results_dir,
+                    recorder=self.recorder,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку драйвера показываем
+                assert self._file_record_queue is not None
+                self._file_record_queue.put(("error", exc))
+            else:
+                assert self._file_record_queue is not None
+                self._file_record_queue.put(("received", received))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(150, self._poll_file_record)
+
+    def _poll_file_record(self) -> None:
+        if self._file_record_queue is None:
+            return
+        try:
+            kind, payload = self._file_record_queue.get_nowait()
+        except queue.Empty:
+            if self.file_recording:
+                self.root.after(150, self._poll_file_record)
+            return
+        self.file_recording = False
+        self.file_record_button.configure(state="normal")
+        if kind == "received":
+            self._show_received_file(payload)
+        else:
+            self.file_record_status.configure(
+                text=f"Запись не выполнена: {type(payload).__name__}: {payload}"
+            )
+            self._set_file_verdict(
+                "Запись не выполнена",
+                "Проверьте микрофон Windows и права доступа к нему.",
+                COLOR_ERROR,
+            )
+
+    def _show_received_file(self, received: Any) -> None:
+        self.file_received = received
+        report = received.report
+        if received.ok:
+            self._set_file_verdict(
+                "Файл принят",
+                "Размер и SHA-256 совпали. Это проверка целостности, "
+                "но не подлинности отправителя.",
+                COLOR_SUCCESS,
+            )
+            file_info = report.get("file", {})
+            self.file_received_info.configure(
+                text=(
+                    f"{file_info.get('filename')} · "
+                    f"{file_info.get('size')} байт\n"
+                    f"SHA-256: {file_info.get('sha256')}\n"
+                    f"Сохранён: {received.output_path}"
+                )
+            )
+        else:
+            title, hint = self._describe_file_error(report)
+            self._set_file_verdict(title, hint, COLOR_ERROR)
+            transfer = report.get("transfer") or {}
+            if transfer:
+                self.file_received_info.configure(
+                    text=(
+                        f"Чанков: {transfer.get('chunks_received')} "
+                        f"из {transfer.get('total_chunks')}; "
+                        f"пропущено: {len(transfer.get('missing_chunks') or [])}"
+                    )
+                )
+            else:
+                self.file_received_info.configure(text="")
+        rms = report.get("recording", {}).get("rms_dbfs")
+        level = f" · RMS {rms:.1f} dBFS" if isinstance(rms, (int, float)) else ""
+        self.file_record_status.configure(
+            text=(
+                f"Записано {received.recording.duration_s:.2f} с"
+                f"{level}. Файл: {received.wav_path.name}"
+            )
+        )
+        self.file_record_json.configure(text=f"JSON: {received.json_path}")
+        self._request_content_sync()
+
+    @staticmethod
+    def _describe_file_error(report: Any) -> tuple[str, str]:
+        error_type = report.get("error_type")
+        message = str(report.get("message") or "Причина не сообщена.")
+        mapping = {
+            "signal_not_found": (
+                "Сигнал не найден",
+                "В записи нет уверенной преамбулы. Поднесите телефон или "
+                "динамик ближе и повторите передачу.",
+            ),
+            "not_file_transfer": (
+                "Это не файл",
+                "Кадры найдены, но они не являются файловыми пакетами "
+                "MANIFEST/DATA/END.",
+            ),
+            "incomplete_transfer": (
+                "Файл не собран",
+                "Не все чанки приняты или запись короче сигнала. Увеличьте "
+                "длительность записи и повторите передачу.",
+            ),
+            "transfer_conflict": (
+                "Конфликт передачи",
+                "Пакеты относятся к разным передачам или содержат разные "
+                "данные. Файл не сохранён.",
+            ),
+            "hash_mismatch": (
+                "SHA-256 не совпал",
+                "Файл собран, но его содержимое отличается от отправленного. "
+                "Файл не сохранён.",
+            ),
+            "manifest_invalid": (
+                "Повреждён MANIFEST",
+                "Имя или размер файла в манифесте некорректны.",
+            ),
+            "packet_invalid": (
+                "Повреждён пакет",
+                "Пакет не соответствует контракту файлового слоя.",
+            ),
+            "filename_invalid": (
+                "Недопустимое имя",
+                "Имя файла пустое, слишком длинное или содержит запрещённые "
+                "символы.",
+            ),
+            "file_too_large": (
+                "Файл слишком велик",
+                "Файловый слой v0 принимает не более 4096 байт.",
+            ),
+            "output_error": (
+                "Не удалось сохранить файл",
+                "Проверьте права на каталог результатов.",
+            ),
+            "wav_format_error": (
+                "Неверный формат записи",
+                "Ожидается PCM16 mono на частоте профиля.",
+            ),
+            "wav_not_found": (
+                "Файл записи не найден",
+                "Запись не была сохранена.",
+            ),
+            "sync_mismatch": (
+                "Кадр повреждён",
+                "Преамбула найдена, но синхрослово не совпало.",
+            ),
+            "crc_mismatch": (
+                "Ошибка CRC",
+                "Кадр принят с искажениями. Уменьшите расстояние или "
+                "используйте профиль data-robust.",
+            ),
+            "incomplete_frame": (
+                "Запись обрезана",
+                "Кадр не успел прозвучать целиком. Увеличьте длительность "
+                "записи.",
+            ),
+        }
+        title, hint = mapping.get(
+            error_type,
+            (
+                "Файл не принят",
+                "Проверьте расстояние, громкость, длительность записи и "
+                "выбранный профиль.",
+            ),
+        )
+        return title, f"{hint} ({message})"
+
+    def _set_file_verdict(self, title: str, hint: str, color: str) -> None:
+        self.file_verdict_label.configure(text=title, foreground=color)
+        self.file_verdict_hint.configure(text=hint)
         self._request_content_sync()
 
     def _metric_tile(
@@ -1739,6 +2501,7 @@ class DesktopApp:
             hint = "Перед стартом приложение попросит подтверждение."
         self.play_hint.configure(text=hint)
         self._update_data_play_state()
+        self._update_file_play_state()
 
     def _ask_confirm(self, tone: Any, device: Any) -> bool:
         return bool(
@@ -2146,7 +2909,7 @@ class DesktopApp:
             pass
 
     def _on_close(self) -> None:
-        if self._playing and self.engine is not None:
+        if (self._playing or self.file_playing) and self.engine is not None:
             try:
                 self.engine.stop()
             except Exception:  # noqa: BLE001

@@ -1,6 +1,6 @@
 # Acoustic File Transfer v0 — контракт
 
-**Статус:** PROPOSED; Python v0 реализован 2026-11-03, ожидает одобрения Product Owner  
+**Статус:** PROPOSED; Python v0 и Windows Desktop Lab реализованы 2026-11-04, ожидает одобрения Product Owner
 **Связанные:** `docs/acoustic-data-link.md`, `docs/sn028-next-plan.md`,
 `docs/sn028-stage-1-runbook.md`, ADR-001
 
@@ -162,6 +162,31 @@ python file_transfer.py receive --wav results\note.wav --out-dir results\receive
 `4` — передача не восстановлена. `send` создаёт только WAV и JSON и не
 воспроизводит звук.
 
+### 6.1 Windows Desktop Lab
+
+`acoustic-lab/snlab/file_transfer_desktop.py` связывает файловый слой с
+устройствами Windows и отчётами Desktop Lab:
+
+- `generate_file_message` — файл → WAV + JSON `file-tx-<профиль>-<метка>.json`;
+- `play_file_message` — PLAY только после подтверждения, SHA-256 WAV
+  перепроверяется перед открытием потока; пишется
+  `<имя>.playback-<метка>.json`;
+- `receive_file` — запись микрофона 1…300 с, WAV + JSON
+  `file-rx-<профиль>-<метка>.json`, собранный файл сохраняется в отдельный
+  подкаталог `received/<имя-записи>/`, чтобы не перезаписывать прежние
+  приёмы.
+
+В `desktop_app.py` добавлены карточки «Передать файл» и «Принять файл»:
+выбор файла, создание WAV, подтверждаемый PLAY, выбор микрофона, запись,
+показ имени, размера, SHA-256 и пути сохранённого файла. Схемы отчётов
+Desktop Lab: `silentnetwork.acoustic-lab.file-transfer-tx/1`,
+`.../file-transfer-playback/1`, `.../file-transfer-receive/1`. Исходная
+схема контракта сохраняется в поле `contract_schema`.
+
+`performed=true` в playback-отчёте означает только полное воспроизведение
+WAV. Ни создание WAV, ни PLAY, ни успешный round-trip через файл не
+доказывают передачу через воздух.
+
 ## 7. Ошибки
 
 | `error_type` | Причина |
@@ -189,15 +214,16 @@ python file_transfer.py receive --wav results\note.wav --out-dir results\receive
 | Этап | Содержание | Статус |
 |---|---|---|
 | 0 | Контракт, Python-прототип, файловый round-trip через WAV, тесты | реализован: `snlab/file_transfer.py`, CLI, 71 тест; ожидает одобрения PO |
-| 1 | Windows Desktop Lab: выбор файла, отправка, приём и сохранение | план |
+| 1 | Windows Desktop Lab: выбор файла, отправка, приём и сохранение | реализован: `snlab/file_transfer_desktop.py`, карточки в `desktop_app.py`, 19 тестов; воздух не проверялся |
 | 2 | Реальный тест 30 см: текст, JSON, PNG; измерения | план |
 | 3 | Android: выбор файла, длинная запись, приём и экспорт | план |
 | 4 | ACK/повтор, докачка, файлы больше 4 КиБ | после SN-033 |
 | 5 | SCNP/AEAD до любых личных данных | после SN-030…SN-032 |
 
 Этап 0 доказывает только файловый round-trip через синтезированный WAV. Он
-**не** доказывает передачу через воздух. Для этого нужен этап 2 с записью
-микрофона и метаданными.
+**не** доказывает передачу через воздух. Этап 1 добавляет Windows UI и
+отчёты PLAY/приёма, но также не заменяет воздушный тест: для этого нужен
+этап 2 с записью микрофона и метаданными.
 
 Android сейчас пишет не более 15 с. Файл 100 байт (≈10.4 с звука) помещается в
 одну запись, 1 КиБ и 4 КиБ требуют длинной записи или записи по частям.
