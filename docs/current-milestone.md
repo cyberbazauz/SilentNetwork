@@ -1,6 +1,6 @@
 # Текущий milestone — M0
 
-**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021, SN-013, SN-012, код SN-014 (физическая калибровка — `PENDING`) и SN-015: Windows Desktop Lab и Android Receiver объединены в `agent1/m0-acoustic-lab` (merge `aba35cc`), физический LAPTOP → PHONE — `PENDING`. Технические критерии M0 покрыты, формальное закрытие — за Product Owner.  
+**Статус:** APPROVED — Product Owner, 2026-11-01. 11 критериев рассмотрены; M0-4 утверждён с изменённой методикой (без SNR из записи фона). Реализованы SN-010, SN-011, файловая часть SN-021, SN-013, SN-012, код SN-014 (физическая калибровка — `PENDING`) и SN-015: Windows Desktop Lab и Android Receiver объединены в `agent1/m0-acoustic-lab` (merge `aba35cc`), физический LAPTOP → PHONE — `PENDING`. Технические критерии M0 покрыты, формальное закрытие — за Product Owner. Дополнительно в `REVIEW`: SN-034 (файловый слой v0) и SN-035 (непрерывный чат); воздушные прогоны для них не выполнялись.  
 **Дата предложения:** 2026-11-01  
 **Автор:** Agent 1  
 **Связанные задачи:** SN-003, SN-005…SN-015, SN-020, SN-021  
@@ -22,6 +22,8 @@
 | SN-012 | DONE (код) | `snlab/calibration.py` + `calibrate.py`: тон-план, захват динамик→микрофон, уровень/SNR/смещение частоты/клиппинг, WAV+JSON+PNG; физический режим только с `--hardware-test`; реальный акустический PASS не заявляется |
 | SN-014 | IN_PROGRESS (код готов, физика PENDING) | `snlab/tones.py`, `snlab/analysis.py`, `snlab/response.py` + `tonegen.py`, `analyze.py`, `response.py`: безопасные файловые инструменты, полный прогон 400 passed; план физической калибровки — `docs/hardware-calibration/SN-014-TEST-PLAN.md`; измерения не выполнялись |
 | SN-015 | REVIEW (код DONE, физика PENDING) | Windows Desktop Lab (`desktop_app.py`, `snlab/desktop.py`, `snlab/playback.py`, `.bat`) и Android Receiver (PCM16 WAV, JSON, Test ID, маршрут микрофона) объединены merge-коммитом `aba35cc`. Прежние независимые прогоны: Python 439 passed, Android 56 debug + 56 release. После merge повторно: Python 439 passed, Android 112 (failures 0), APK пересобран. Доставка: `dist/SilentNetwork-Android.apk`, `dist/SilentNetwork-Desktop/`, инструкция `docs/hardware-calibration/SN-015-FINAL-DELIVERY.md`. Физическое воспроизведение и LAPTOP → PHONE не выполнялись — `PENDING` |
+| SN-034 | REVIEW | файловый слой v0: `docs/acoustic-file-transfer.md`, `snlab/file_transfer.py`, CLI, векторы, Windows-карточки и Android-приём; лимит 8192 байта (152 DATA-чанка, 164 пакета, ≈364 с звука). Python и Kotlin сверены 8/8. Передача файла через воздух не выполнялась |
+| SN-035 | REVIEW | непрерывный акустический чат: `snlab/chat.py` (`StreamingFrameDecoder`, `ChatSession`), `ContinuousCapture`, вкладка «Чат» в Windows Desktop Lab и Android Messenger; отправка текста/файла сразу в PLAY, полудуплекс, потоковый разбор Frame v1. Python 644 passed; Android 200 (failures 0, errors 0, skipped 2); EXE smoke-test exit 0. Работа на телефоне и передача через воздух не проверены; Phone → Laptop `PENDING EXTERNAL MICROPHONE` |
 
 ---
 
