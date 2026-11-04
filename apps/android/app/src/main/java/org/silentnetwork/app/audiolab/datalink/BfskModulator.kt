@@ -91,4 +91,7 @@ object BfskModulator {
         value < 0.0 -> -1.0
         else -> 0.0
     }
+
+    /** Тот же знак для Float-метрики демодулятора. */
+    internal fun sign(value: Float): Double = sign(value.toDouble())
 }

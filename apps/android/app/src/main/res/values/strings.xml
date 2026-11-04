@@ -124,7 +124,8 @@
 
     <!-- File transfer -->
     <string name="file_title">Принять файл</string>
-    <string name="file_desc">Ноутбук → телефон. Один файл до 4 КиБ; приём без ACK и шифрования. SHA-256 проверяет целостность, но не отправителя.</string>
+    <string name="file_desc">Ноутбук → телефон. Один файл до 8 КиБ; приём без ACK и шифрования. SHA-256 проверяет целостность, но не отправителя.</string>
+    <string name="file_duration_hint">8 КиБ звучат около 364 с: выберите запись не меньше 420 с. Длинная запись требует много памяти; при нехватке памяти приложение может быть остановлено.</string>
     <string name="file_profile_label">Профиль сигнала для файла</string>
     <string name="file_rx_duration_label">Длительность записи</string>
     <string name="file_btn_record">Записать и принять файл</string>

@@ -289,7 +289,7 @@ def test_receive_file_validates_inputs(tmp_path: Path) -> None:
         )
     with pytest.raises(file_transfer_desktop.FileDesktopError):
         file_transfer_desktop.receive_file(
-            "data-audible", make_input_device(), 301.0, tmp_path
+            "data-audible", make_input_device(), 601.0, tmp_path
         )
     with pytest.raises(file_transfer_desktop.FileDesktopError):
         file_transfer_desktop.receive_file(
@@ -313,7 +313,7 @@ def test_recommended_record_seconds_has_bounds() -> None:
     assert file_transfer_desktop.recommended_record_seconds(10.0) == 13.0
     assert file_transfer_desktop.recommended_record_seconds(0.0) == 3.0
     assert (
-        file_transfer_desktop.recommended_record_seconds(299.0)
+        file_transfer_desktop.recommended_record_seconds(599.0)
         == file_transfer_desktop.MAX_RECORD_SECONDS
     )
     with pytest.raises(file_transfer_desktop.FileDesktopError):

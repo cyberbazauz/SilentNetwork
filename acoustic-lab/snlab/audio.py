@@ -438,6 +438,7 @@ def record_ambient(
     block_size: int = 4_096,
     sd_module: Any | None = None,
     startup_margin_s: float = 30.0,
+    max_duration_s: float = 300.0,
 ) -> Recording:
     """Записать фоновый шум с микрофона.
 
@@ -445,11 +446,15 @@ def record_ambient(
     или драйвер выбросил исключение. Запас `startup_margin_s` покрывает
     холодный старт драйвера: на этой машине первый захват занял на ~13 с
     больше длительности записи, последующие шли в реальном времени.
+    `max_duration_s` по умолчанию повторяет прежний предел 300 с; файловый
+    приёмник передаёт 600 с, чтобы записать 8 КиБ (около 364 с звука).
     """
     if not math.isfinite(duration_s) or duration_s <= 0:
         raise ValueError("длительность записи должна быть положительным числом")
-    if duration_s > 300.0:
-        raise ValueError("длительность записи ограничена 300 с")
+    if not math.isfinite(max_duration_s) or max_duration_s <= 0:
+        raise ValueError("max_duration_s должен быть положительным числом")
+    if duration_s > max_duration_s:
+        raise ValueError(f"длительность записи ограничена {max_duration_s:g} с")
     if not isinstance(sample_rate, int) or not 8_000 <= sample_rate <= 192_000:
         raise ValueError("sample_rate должен быть целым в диапазоне 8000..192000")
     if not isinstance(block_size, int) or block_size <= 0:

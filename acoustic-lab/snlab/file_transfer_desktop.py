@@ -44,11 +44,11 @@ DEFAULT_TAIL_SILENCE_S = file_transfer.DEFAULT_TAIL_SILENCE_S
 DEFAULT_INTER_FRAME_GAP_S = file_transfer.DEFAULT_INTER_FRAME_GAP_S
 DEFAULT_RECORD_SECONDS = 30.0
 MIN_RECORD_SECONDS = 1.0
-MAX_RECORD_SECONDS = 300.0
+MAX_RECORD_SECONDS = 600.0
 
 FILE_LIMITATIONS = [
     "WAV и JSON сами по себе не доказывают передачу через воздух.",
-    "Один файл 0..4096 байт: нет ACK, докачки и повторов по запросу.",
+    "Один файл 0..8192 байт: нет ACK, докачки и повторов по запросу.",
     "SHA-256 проверяет целостность файла, но не аутентифицирует отправителя.",
     "Нет шифрования и SCNP/AEAD: секреты и личные данные передавать нельзя.",
     "Системная громкость не изменяется; запись начинается только по кнопке.",
@@ -414,6 +414,7 @@ def receive_file(
         duration_s=float(duration_s),
         device=device,
         sample_rate=selected.sample_rate,
+        max_duration_s=MAX_RECORD_SECONDS,
     )
     if not isinstance(record, audio.Recording):
         raise FileDesktopError("recorder должен вернуть audio.Recording")

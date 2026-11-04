@@ -313,6 +313,19 @@ def test_record_ambient_rejects_bad_duration(duration: float) -> None:
         audio.record_ambient(duration_s=duration, sd_module=fake_sd())
 
 
+def test_record_ambient_accepts_long_limit_for_file_transfer() -> None:
+    recording = audio.record_ambient(
+        duration_s=420.0,
+        sample_rate=8_000,
+        block_size=4_096,
+        sd_module=fake_sd(),
+        max_duration_s=600.0,
+    )
+
+    assert recording.frames_requested == 3_360_000
+    assert recording.frames_captured == 3_360_000
+
+
 def test_record_ambient_rejects_bad_sample_rate() -> None:
     with pytest.raises(ValueError, match="sample_rate"):
         audio.record_ambient(duration_s=1.0, sample_rate=4_000, sd_module=fake_sd())

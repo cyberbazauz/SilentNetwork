@@ -171,14 +171,14 @@ Frame v1 декодирован, CRC-16 `0xD8B5`, текст `SILENTNETWORK`, п
 
 ### 3.1 Параллельная ветка: файловый слой v0 (SN-034)
 
-По запросу Product Owner начат файловый слой поверх Frame v1: файл 0…4096 байт,
+По решению Product Owner файловый слой поверх Frame v1 поднят до 8192 байт:
 пакеты MANIFEST/DATA/END, SHA-256 и CLI `acoustic-lab/file_transfer.py`.
-Python-прототип и 71 тест готовы. Этап 1 — Windows Desktop Lab: backend
+Python-прототип и 72 теста готовы. Этап 1 — Windows Desktop Lab: backend
 `snlab/file_transfer_desktop.py` и карточки «Передать файл»/«Принять файл» в
-`desktop_app.py`, ещё 19 тестов; Python 602 passed. Этап 3 — Android-приём:
-Kotlin-порт `audiolab/datalink/FileTransferCodec.kt`, offset-aware
-`findFrameStart(from)`, карточка «Файлы через звук» с записью 15/30/60 с и
-экспортом файла/JSON, 17 JVM-тестов; Android 91 debug + 91 release, failures 0.
+`desktop_app.py`, ещё 19 тестов. Этап 3 — Android-приём: Kotlin-порт
+`audiolab/datalink/FileTransferCodec.kt`, offset-aware `findFrameStart(from)`,
+карточка «Файлы через звук» с записью 15/30/60/120/240/420 с и экспортом
+файла/JSON, 17 JVM-тестов; Android 94 debug + 94 release, failures 0.
 Это **не** часть статистики SN-028 и не передача через воздух.
 
 Порядок:
@@ -186,9 +186,11 @@ Kotlin-порт `audiolab/datalink/FileTransferCodec.kt`, offset-aware
 1. Product Owner одобряет контракт `docs/acoustic-file-transfer.md`.
 2. Первый воздушный файл — текст/JSON ≤ 100 байт на 30 см, с WAV/JSON и
    метаданными, отдельно от серии SN-028.
-3. Android-карточка файлов уже пишет 15/30/60 с; примерно 200 байт, 500 байт и
-   1 КиБ соответственно. Файл 1 КиБ требует около 53 с звука и близок к
-   лимиту, 4 КиБ (≈182 с) в одну запись не помещается.
+3. Android-карточка файлов пишет 15/30/60/120/240/420 с; примерно 200 байт,
+   500 байт, 1 КиБ, 2 КиБ, 4 КиБ и 8 КиБ соответственно. Файл 8 КиБ требует
+   около 364 с звука, поэтому нужна запись 420 с и запас памяти: примерно
+   40 МБ PCM при 48 кГц. Успешный приём 8 КиБ на реальном телефоне пока не
+   подтверждён.
 
 Windows Desktop Lab и Android-карточка проверены только тестами и smoke-test
 без звука. Запись PLAY/приёма через воздух ещё не выполнялась.

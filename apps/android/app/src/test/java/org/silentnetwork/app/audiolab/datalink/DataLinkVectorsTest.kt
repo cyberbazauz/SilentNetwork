@@ -1,5 +1,6 @@
 package org.silentnetwork.app.audiolab.datalink
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -205,6 +206,78 @@ class DataLinkVectorsTest {
         )
         assertEquals(28, report.getInt("min_preamble_matches"))
         assertEquals(32, report.getInt("preamble_matches"))
+    }
+
+    @Test
+    fun periodicPreambleDoesNotLockTwoSymbolsEarly() {
+        val payload = DataLinkCodec.textToPayload("PERIODIC")
+        val frame = FrameV1.build(payload)
+        val profile = BfskProfile.DATA_AUDIBLE
+        val bits = ByteArray(frame.bits.size + 2)
+        bits[0] = 1
+        bits[1] = 0
+        frame.bits.copyInto(bits, 2)
+        val tone = BfskModulator.bitsToSamples(bits, profile)
+        val lead = FloatArray(1000)
+        val tail = FloatArray(1000)
+        val samples = FloatArray(lead.size + tone.size + tail.size)
+        lead.copyInto(samples, 0)
+        tone.copyInto(samples, lead.size)
+        tail.copyInto(samples, lead.size + tone.size)
+
+        val decoded = BfskDemodulator.decode(samples, profile)
+
+        assertArrayEquals(payload, decoded.payload)
+        assertEquals(frame.crc, decoded.crc)
+    }
+
+    @Test
+    fun crcSelectsStartInsideSymbolPlateau() {
+        val payload = DataLinkCodec.textToPayload("SHIFT")
+        val frame = FrameV1.build(payload)
+        val profile = BfskProfile.DATA_AUDIBLE
+        val samples = BfskModulator.bitsToSamples(frame.bits, profile)
+        val metric = BfskDemodulator.bitMetric(samples, profile)
+        val candidates = BfskDemodulator.findFrameCandidates(metric, profile)
+        val trueStart = candidates.minOf { it.sample }
+        val shifted = listOf(
+            BfskDemodulator.FrameStart(
+                sample = trueStart + profile.samplesPerSymbol / 2,
+                preambleMatches = BfskDemodulator.PREAMBLE_BITS,
+                coarseSample = trueStart
+            )
+        )
+
+        val decoded = BfskDemodulator.decodeCandidates(metric, profile, shifted)
+
+        assertArrayEquals(payload, decoded.payload)
+        assertEquals(frame.crc, decoded.crc)
+    }
+
+    @Test
+    fun decodesAtZeroSnrWithDeterministicNoise() {
+        val payload = DataLinkCodec.textToPayload("NOISY")
+        val frame = FrameV1.build(payload)
+        val profile = BfskProfile.DATA_AUDIBLE
+        val tone = BfskModulator.bitsToSamples(frame.bits, profile)
+        val samples = FloatArray(4800 + tone.size + 2400)
+        tone.copyInto(samples, 4800)
+        var sumSquares = 0.0
+        for (value in samples) sumSquares += value.toDouble() * value
+        val rms = kotlin.math.sqrt(sumSquares / samples.size)
+        val random = java.util.Random(20261104L)
+
+        repeat(5) {
+            val noisy = FloatArray(samples.size) {
+                (samples[it] + random.nextGaussian() * rms).toFloat()
+            }
+            val decoded = BfskDemodulator.decode(
+                noisy,
+                profile,
+                minPreambleMatches = 28
+            )
+            assertArrayEquals(payload, decoded.payload)
+        }
     }
 
     private fun hexToBits(hex: String): ByteArray {

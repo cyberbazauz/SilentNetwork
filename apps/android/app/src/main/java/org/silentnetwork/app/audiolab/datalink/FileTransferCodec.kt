@@ -30,7 +30,7 @@ import kotlin.math.sqrt
  * modified. SHA-256 checks file integrity but does **not** authenticate the
  * sender. CRC-16 and SHA-256 do not replace AEAD.
  *
- * Limits: one file per transfer, 0..4096 bytes, filename 1..40 UTF-8 bytes,
+ * Limits: one file per transfer, 0..8192 bytes, filename 1..40 UTF-8 bytes,
  * 54 data bytes per DATA packet, no ACK and no encryption.
  */
 object FileTransferCodec {
@@ -39,7 +39,7 @@ object FileTransferCodec {
     const val PACKET_HEADER_BYTES = 10
     const val CHUNK_DATA_BYTES = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES - PACKET_HEADER_BYTES
     const val MAX_FILENAME_BYTES = 40
-    const val MAX_FILE_BYTES = 4096
+    const val MAX_FILE_BYTES = 8192
     const val MAX_CHUNKS = (MAX_FILE_BYTES + CHUNK_DATA_BYTES - 1) / CHUNK_DATA_BYTES
 
     const val PACKET_MANIFEST = 1
@@ -515,8 +515,8 @@ object FileTransferCodec {
         var framesFound = 0
 
         while (offset < metric.size) {
-            val start = try {
-                BfskDemodulator.findFrameStart(
+            val candidates = try {
+                BfskDemodulator.findFrameCandidates(
                     metric,
                     profile,
                     minPreambleMatches,
@@ -526,30 +526,50 @@ object FileTransferCodec {
                 break
             }
 
-            val frame = try {
-                BfskDemodulator.decodeFromMetric(
+            var frame: BfskDemodulator.DecodedFrame? = null
+            // `findFrameCandidates` scans the whole remaining recording, so it
+            // also returns preambles of later frames and weaker partial matches
+            // before the real one. The anchor is the earliest candidate with
+            // the best preamble score; the `1010…` ambiguity is two symbols
+            // wide, and a noisy refinement can add one more symbol on each
+            // side.
+            val bestMatches = candidates.maxOf { it.preambleMatches }
+            val anchor = candidates
+                .filter { it.preambleMatches == bestMatches }
+                .minOf { it.sample }
+            val nearby = candidates.filter {
+                it.sample - anchor in 0..(4 * symbolsPerBit)
+            }
+            val failureStart = nearby.first()
+            var firstError: BfskDemodulator.ReceiverError? = null
+            try {
+                frame = BfskDemodulator.decodeCandidates(
                     metric,
                     profile,
-                    start,
+                    nearby,
                     maxPayloadBytes = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES,
                     minPreambleMatches = minPreambleMatches
                 )
-            } catch (exc: BfskDemodulator.ReceiverError) {
+            } catch (error: BfskDemodulator.ReceiverError) {
+                firstError = error
+            }
+
+            if (frame == null) {
+                val error = firstError ?: break
                 failures.add(
                     FrameFailure(
-                        startSample = start.sample,
-                        startTimeS = start.sample.toDouble() / profile.sampleRate,
-                        errorType = receiverErrorType(exc),
-                        message = exc.message ?: "ошибка приёма кадра"
+                        startSample = failureStart.sample,
+                        startTimeS = failureStart.sample.toDouble() / profile.sampleRate,
+                        errorType = receiverErrorType(error),
+                        message = error.message ?: "ошибка приёма кадра"
                     )
                 )
                 // Пропускаем преамбулу повреждённого кадра и ищем следующий.
-                val resync = start.sample + FrameV1.PREAMBLE_BITS * symbolsPerBit
+                val resync = failureStart.sample + FrameV1.PREAMBLE_BITS * symbolsPerBit
                 if (resync >= metric.size) break
                 offset = resync
                 continue
             }
-
             framesFound++
             val consumed = frame.startSample + frame.totalBits * symbolsPerBit
             try {

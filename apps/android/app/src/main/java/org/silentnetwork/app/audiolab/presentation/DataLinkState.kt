@@ -8,6 +8,9 @@ object DataLinkState {
     const val DEFAULT_PROFILE = "data-audible"
     const val ACOUSTIC_MIN_PREAMBLE = DataLinkCodec.ACOUSTIC_MIN_PREAMBLE_MATCHES
 
+    /** Below this peak level a close-range tone is suspiciously quiet. */
+    private const val QUIET_PEAK_DBFS = -20.0
+
     val PROFILE_OPTIONS = listOf(
         Pair("data-audible", BfskProfile.DATA_AUDIBLE),
         Pair("data-robust", BfskProfile.DATA_ROBUST)
@@ -16,7 +19,9 @@ object DataLinkState {
     val RECEIVER_DURATIONS_SEC = listOf(5, 10, 15)
     const val DEFAULT_RECEIVER_DURATION_SEC = 10
 
-    val FILE_RECEIVER_DURATIONS_SEC = listOf(15, 30, 60)
+    // 8 КиБ при 300 бод звучат около 364 с. 420 с даёт запас на паузы и
+    // задержку старта записи; короткие значения оставлены для малых файлов.
+    val FILE_RECEIVER_DURATIONS_SEC = listOf(15, 30, 60, 120, 240, 420)
     const val DEFAULT_FILE_RECEIVER_DURATION_SEC = 30
 
     fun getProfile(name: String): BfskProfile {
@@ -54,7 +59,9 @@ object DataLinkState {
         if (received.ok) {
             return "Кадр принят, CRC совпал. CRC не является аутентификацией."
         }
-        return received.message ?: "Проверьте расстояние, уровень громкости и профиль."
+        val base = received.message ?: "Проверьте расстояние, уровень громкости и профиль."
+        val quiet = quietSignalHint(received.peakDbfs, received.rmsDbfs)
+        return if (quiet == null) base else "$base\n$quiet"
     }
 
     fun recordingSummary(received: DataLinkCodec.ReceivedMessage): String {
@@ -94,9 +101,28 @@ object DataLinkState {
             return "Собраны все чанки, размер и SHA-256 совпали. " +
                 "SHA-256 не аутентифицирует отправителя."
         }
-        return result.message.ifBlank {
+        val base = result.message.ifBlank {
             "Проверьте расстояние, уровень громкости и профиль сигнала."
         }
+        val quiet = quietSignalHint(result.peakDbfs, result.rmsDbfs)
+        return if (quiet == null) base else "$base\n$quiet"
+    }
+
+    /**
+     * A recording much quieter than a normal close-range tone usually means
+     * the phone listened to the wrong speaker or the volume was too low.
+     * CRC mismatch alone does not distinguish that from frame timing errors.
+     */
+    private fun quietSignalHint(peakDbfs: Double, rmsDbfs: Double): String? {
+        if (peakDbfs >= QUIET_PEAK_DBFS) return null
+        return String.format(
+            java.util.Locale.US,
+            "Запись очень тихая: пик %.1f dBFS, RMS %.1f dBFS. " +
+                "Поднесите телефон к динамику, увеличьте громкость и проверьте, " +
+                "что звук идёт из нужного устройства.",
+            peakDbfs,
+            rmsDbfs
+        )
     }
 
     fun fileRecordingSummary(result: FileTransferCodec.FileReceiveResult): String {

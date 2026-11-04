@@ -6,7 +6,7 @@ Frame v1, CRC-16/CCITT-FALSE, BFSK, профили и лимит 64 байта p
 
 Границы v0:
 
-* один файл за передачу, 0..4096 байт, имя до 40 байт UTF-8;
+* один файл за передачу, 0..8192 байт, имя до 40 байт UTF-8;
 * пакеты MANIFEST / DATA / END внутри payload Frame v1;
 * SHA-256 проверяет целостность файла, но не аутентифицирует отправителя;
 * файловый round-trip через WAV не доказывает передачу через воздух.
@@ -32,7 +32,8 @@ from snlab.receiver import (
     ReceiverError,
     SignalNotFound,
     bit_metric,
-    decode_from_metric,
+    decode_candidates,
+    find_frame_candidates,
     find_frame_start,
 )
 from snlab.wavio import WavFormatError, read_pcm16, write_pcm16
@@ -45,7 +46,7 @@ FT_VERSION = 1
 PACKET_HEADER_BYTES = 10
 CHUNK_DATA_BYTES = MAX_DATA_PAYLOAD_BYTES - PACKET_HEADER_BYTES
 MAX_FILENAME_BYTES = 40
-MAX_FILE_BYTES = 4096
+MAX_FILE_BYTES = 8192
 MAX_CHUNKS = (MAX_FILE_BYTES + CHUNK_DATA_BYTES - 1) // CHUNK_DATA_BYTES
 
 PACKET_MANIFEST = 1
@@ -675,29 +676,54 @@ def decode_packets_from_samples(
     while offset < metric.size:
         view = metric[offset:]
         try:
-            start = find_frame_start(
+            candidates = find_frame_candidates(
                 view, profile, min_preamble_matches=min_preamble_matches
             )
         except SignalNotFound:
             break
+
+        frame = None
+        # `find_frame_candidates` scans the whole remaining recording, so it
+        # also returns preambles of later frames and weaker partial matches
+        # before the real one. The anchor is the earliest candidate with the
+        # best preamble score; the `1010…` ambiguity is two symbols wide, and
+        # a noisy refinement can add one more symbol on each side.
+        best_matches = max(item.preamble_matches for item in candidates)
+        anchor = min(
+            item.sample
+            for item in candidates
+            if item.preamble_matches == best_matches
+        )
+        nearby = [
+            item
+            for item in candidates
+            if 0 <= item.sample - anchor <= 4 * symbols_per_bit
+        ]
+        failure_start = nearby[0]
+        first_error: ReceiverError | None = None
         try:
-            frame = decode_from_metric(
+            frame = decode_candidates(
                 view,
                 profile,
-                start,
+                nearby,
                 max_payload_bytes=MAX_DATA_PAYLOAD_BYTES,
                 min_preamble_matches=min_preamble_matches,
             )
         except ReceiverError as exc:
+            first_error = exc
+
+        if frame is None:
+            assert first_error is not None  # кандидаты всегда непусты
             failures.append(
                 FrameFailure(
-                    start_sample=offset + start.sample,
-                    start_time_s=(offset + start.sample) / profile.sample_rate,
-                    error_type=_receiver_error_type(exc),
-                    message=str(exc),
+                    start_sample=offset + failure_start.sample,
+                    start_time_s=(offset + failure_start.sample)
+                    / profile.sample_rate,
+                    error_type=_receiver_error_type(first_error),
+                    message=str(first_error),
                 )
             )
-            resync = start.sample + PREAMBLE_BITS * symbols_per_bit
+            resync = failure_start.sample + PREAMBLE_BITS * symbols_per_bit
             if resync >= view.size:
                 break
             try:

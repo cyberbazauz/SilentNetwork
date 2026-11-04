@@ -74,11 +74,13 @@ class AudioLabFragment : Fragment() {
     private var lastDataLinkReportJson: String? = null
     private var dataLinkArtifactLabel: String? = null
     private var pendingDataLinkRecord = false
+    private var dataLinkRecordSession = 0
     private val dataLinkExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     // File transfer receive state (SN-034 stage 3).
     private var pendingFileRecord = false
     private var fileRecordCancelled = false
+    private var fileRecordSession = 0
     private var lastReceivedFile: File? = null
     private var lastFileReportJson: String? = null
     private var fileArtifactLabel: String? = null
@@ -298,6 +300,8 @@ class AudioLabFragment : Fragment() {
             if (recorderEngine.isRecording) {
                 // Partial capture is not a file transfer: mark it as cancelled
                 // before the recorder thread can deliver onComplete.
+                dataLinkRecordSession++
+                fileRecordSession++
                 fileRecordCancelled = true
                 recorderEngine.stop()
             }
@@ -589,6 +593,7 @@ class AudioLabFragment : Fragment() {
             // Ручная остановка — это отмена записи, а не приём: AudioRecord
             // освобождается сразу, частичный буфер не декодируется. Приём
             // выполняется только после полной длительности записи.
+            dataLinkRecordSession++
             recorderEngine.stop()
             binding.btnDatalinkRecord.isEnabled = true
             binding.btnDatalinkStopRecord.isEnabled = false
@@ -726,6 +731,7 @@ class AudioLabFragment : Fragment() {
         val profile = selectedDataLinkProfile()
         val durationIndex = binding.spinnerDatalinkRxDuration.selectedItemPosition.coerceAtLeast(0)
         val durationSec = DataLinkState.RECEIVER_DURATIONS_SEC[durationIndex]
+        val session = ++dataLinkRecordSession
 
         binding.btnDatalinkRecord.isEnabled = false
         binding.btnDatalinkStopRecord.isEnabled = true
@@ -753,12 +759,17 @@ class AudioLabFragment : Fragment() {
             },
             onComplete = { pcmData, actualRate ->
                 mainHandler.post {
+                    if (session != dataLinkRecordSession || _binding == null) {
+                        return@post
+                    }
                     handleDataLinkRecording(pcmData, actualRate, profile)
                 }
             },
             onError = { error ->
                 mainHandler.post {
-                    if (_binding == null) return@post
+                    if (session != dataLinkRecordSession || _binding == null) {
+                        return@post
+                    }
                     binding.btnDatalinkRecord.isEnabled = true
                     binding.btnDatalinkStopRecord.isEnabled = false
                     binding.tvDatalinkRxStatus.text =
@@ -889,6 +900,7 @@ class AudioLabFragment : Fragment() {
             // Ручная остановка — отмена записи, а не приём: частичный буфер
             // не декодируется и файл не создаётся.
             fileRecordCancelled = true
+            fileRecordSession++
             recorderEngine.stop()
             binding.btnFileRecord.isEnabled = true
             binding.btnFileStopRecord.isEnabled = false
@@ -937,6 +949,7 @@ class AudioLabFragment : Fragment() {
         }
 
         fileRecordCancelled = false
+        val session = ++fileRecordSession
         val profile = selectedFileProfile()
         val durationIndex = binding.spinnerFileRxDuration.selectedItemPosition.coerceAtLeast(0)
         val durationSec = DataLinkState.FILE_RECEIVER_DURATIONS_SEC[durationIndex]
@@ -971,12 +984,17 @@ class AudioLabFragment : Fragment() {
             },
             onComplete = { pcmData, actualRate ->
                 mainHandler.post {
+                    if (session != fileRecordSession || _binding == null) {
+                        return@post
+                    }
                     handleFileRecording(pcmData, actualRate, profile)
                 }
             },
             onError = { error ->
                 mainHandler.post {
-                    if (_binding == null) return@post
+                    if (session != fileRecordSession || _binding == null) {
+                        return@post
+                    }
                     binding.btnFileRecord.isEnabled = true
                     binding.btnFileStopRecord.isEnabled = false
                     binding.tvFileRxStatus.text =

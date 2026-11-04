@@ -30,14 +30,19 @@ from snlab.frame import (
 from snlab.receiver import (
     CrcError,
     FrameLengthError,
+    FrameStart,
     FrameVersionError,
     IncompleteFrame,
+    ReceiverError,
     SignalNotFound,
     SyncWordError,
     bit_metric,
+    decode_candidates,
+    decode_samples,
     decode_wav,
     demodulate_samples,
     demodulate_wav,
+    find_frame_candidates,
 )
 from snlab.wavio import WavFormatError, write_pcm16
 
@@ -504,3 +509,60 @@ def test_demodulate_samples_does_not_accept_reference_bits() -> None:
 
     assert diagnostic.declared_payload_bytes == len(frame.payload)
     np.testing.assert_array_equal(diagnostic.bits, frame.bits)
+
+# --- SN-035: устойчивость поиска начала кадра ---------------------------
+
+def test_periodic_preamble_does_not_lock_two_symbols_early() -> None:
+    """Преамбула `1010…` периодична: её продолжение не должно сдвигать кадр."""
+    frame = build_frame(b"PERIODIC")
+    # Два лишних символа преамбулы перед кадром дают ровно такое же
+    # совпадение 32/32, но на два символа раньше истинного начала.
+    bits = np.concatenate((np.array([1, 0], dtype=np.uint8), frame.bits))
+    samples = np.concatenate(
+        (np.zeros(1000), modulate(bits, PROFILE).samples, np.zeros(1000))
+    )
+
+    decoded = decode_samples(samples, PROFILE)
+
+    assert decoded.payload == b"PERIODIC"
+    assert decoded.crc == frame.crc
+
+
+def test_crc_selects_start_inside_symbol_plateau() -> None:
+    """Сдвиг начала на часть символа исправляется перебором до CRC."""
+    samples, frame = make_samples(b"SHIFT")
+    metric = bit_metric(samples, PROFILE)
+    candidates = find_frame_candidates(metric, PROFILE)
+    true_start = min(candidates, key=lambda item: item.sample).sample
+    shifted = [
+        FrameStart(
+            sample=true_start + PROFILE.samples_per_symbol // 2,
+            preamble_matches=PREAMBLE_BITS,
+            coarse_sample=true_start,
+        )
+    ]
+
+    decoded = decode_candidates(metric, PROFILE, shifted)
+
+    assert decoded.payload == b"SHIFT"
+    assert decoded.crc == frame.crc
+
+
+def test_decodes_at_zero_snr_with_deterministic_noise() -> None:
+    samples, _ = make_samples(b"NOISY", leading=4800, trailing=2400)
+    tone_rms = float(np.sqrt(np.mean(samples**2)))
+    rng = np.random.default_rng(20261104)
+
+    for _ in range(5):
+        received = samples + rng.normal(0.0, tone_rms, samples.size)
+        decoded = decode_samples(received, PROFILE, min_preamble_matches=28)
+        assert decoded.payload == b"NOISY"
+
+
+def test_noise_only_is_never_accepted() -> None:
+    rng = np.random.default_rng(777)
+
+    for _ in range(5):
+        noise = rng.normal(0.0, 0.01, 48000)
+        with pytest.raises(ReceiverError):
+            decode_samples(noise, PROFILE, min_preamble_matches=28)

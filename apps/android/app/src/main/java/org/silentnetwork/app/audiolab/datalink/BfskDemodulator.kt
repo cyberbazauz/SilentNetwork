@@ -65,7 +65,7 @@ object BfskDemodulator {
      * Difference between mark and space energy for every one-symbol window.
      * Positive means bit 1, negative means bit 0.
      */
-    fun bitMetric(samples: FloatArray, profile: BfskProfile): DoubleArray {
+    fun bitMetric(samples: FloatArray, profile: BfskProfile): FloatArray {
         if (samples.isEmpty()) throw SignalNotFound("запись не содержит отсчётов")
         for (value in samples) {
             if (!value.isFinite()) throw ReceiverError("сигнал содержит NaN или бесконечность")
@@ -74,32 +74,67 @@ object BfskDemodulator {
         if (samples.size < symbolsPerBit) throw SignalNotFound("сигнал короче одного символа")
 
         val windows = samples.size - symbolsPerBit + 1
-        val metric = DoubleArray(windows)
-        val cumulativeReal = DoubleArray(samples.size + 1)
-        val cumulativeImag = DoubleArray(samples.size + 1)
+        // Float, а не Double: на записи 420 с (20 млн отсчётов) массив метрики
+        // занимает 80 МБ вместо 161 МБ. Раньше рядом лежали ещё два
+        // cumulative-массива по 161 МБ, и длинный приём падал по памяти.
+        val metric = FloatArray(windows)
 
         for (pass in 0..1) {
             val frequency = if (pass == 0) profile.markHz else profile.spaceHz
+            val angleStep = -TWO_PI * frequency / profile.sampleRate
+            val stepCos = cos(angleStep)
+            val stepSin = sin(angleStep)
+
+            // Скользящая корреляция по окну ровно в один символ. Поворот
+            // вектора обновляется умножением на постоянный комплексный шаг,
+            // поэтому cos/sin не вызываются на каждый отсчёт, а два массива
+            // длины samples.size не нужны.
             var real = 0.0
             var imag = 0.0
-            cumulativeReal[0] = 0.0
-            cumulativeImag[0] = 0.0
-            for (index in samples.indices) {
-                val angle = -TWO_PI * frequency * index / profile.sampleRate
+            var addReal = 1.0
+            var addImag = 0.0
+            for (index in 0 until symbolsPerBit) {
                 val value = samples[index].toDouble()
-                real += value * cos(angle)
-                imag += value * sin(angle)
-                cumulativeReal[index + 1] = real
-                cumulativeImag[index + 1] = imag
+                real += value * addReal
+                imag += value * addImag
+                val nextReal = addReal * stepCos - addImag * stepSin
+                addImag = addReal * stepSin + addImag * stepCos
+                addReal = nextReal
             }
+
+            var removeReal = 1.0
+            var removeImag = 0.0
             for (start in 0 until windows) {
-                val re = cumulativeReal[start + symbolsPerBit] - cumulativeReal[start]
-                val im = cumulativeImag[start + symbolsPerBit] - cumulativeImag[start]
-                val energy = re * re + im * im
+                val energy = real * real + imag * imag
                 if (pass == 0) {
-                    metric[start] = energy
+                    metric[start] = energy.toFloat()
                 } else {
-                    metric[start] -= energy
+                    metric[start] = (metric[start] - energy).toFloat()
+                }
+                if (start + 1 >= windows) continue
+
+                val addIndex = start + symbolsPerBit
+                val addValue = samples[addIndex].toDouble()
+                val removeValue = samples[start].toDouble()
+                real += addValue * addReal - removeValue * removeReal
+                imag += addValue * addImag - removeValue * removeImag
+
+                val nextAddReal = addReal * stepCos - addImag * stepSin
+                addImag = addReal * stepSin + addImag * stepCos
+                addReal = nextAddReal
+                val nextRemoveReal = removeReal * stepCos - removeImag * stepSin
+                removeImag = removeReal * stepSin + removeImag * stepCos
+                removeReal = nextRemoveReal
+
+                // Раз в 262144 окон нормируем поворот, чтобы накопленная
+                // ошибка умножения не росла на многомиллионной записи.
+                if ((start and 0x3FFFF) == 0) {
+                    val addMagnitude = kotlin.math.hypot(addReal, addImag)
+                    addReal /= addMagnitude
+                    addImag /= addMagnitude
+                    val removeMagnitude = kotlin.math.hypot(removeReal, removeImag)
+                    removeReal /= removeMagnitude
+                    removeImag /= removeMagnitude
                 }
             }
         }
@@ -107,20 +142,27 @@ object BfskDemodulator {
     }
 
     /**
-     * Find the preamble and refine the frame start.
+     * Find all plausible frame starts, best first.
      *
-     * @param from absolute metric index to start searching from. The returned
-     *   [FrameStart.sample] is absolute. Used by the multi-frame file receiver
-     *   to resynchronise after a damaged frame without copying the metric.
+     * The `1010…` preamble repeats every two symbols, so shifting the window by
+     * an even number of symbols gives the **same** correlation. Picking only
+     * the first best window occasionally locked the frame two symbols early:
+     * the preamble still matched, but the sync word did not. Here every
+     * candidate is returned; the final choice is made by sync word, version,
+     * length and CRC in [decode].
+     *
+     * @param from absolute metric index to start searching from.
      */
-    fun findFrameStart(
-        metric: DoubleArray,
+    fun findFrameCandidates(
+        metric: FloatArray,
         profile: BfskProfile,
         minPreambleMatches: Int = PREAMBLE_BITS,
-        from: Int = 0
-    ): FrameStart {
+        from: Int = 0,
+        limit: Int = 8
+    ): List<FrameStart> {
         validateMinPreambleMatches(minPreambleMatches)
         require(from in 0..metric.size) { "from вне диапазона метрики" }
+        require(limit >= 1) { "limit должен быть положительным" }
         val symbolsPerBit = profile.samplesPerSymbol
         val span = PREAMBLE_BITS * symbolsPerBit
         val available = metric.size - from
@@ -128,9 +170,10 @@ object BfskDemodulator {
             throw SignalNotFound("сигнала недостаточно для 32-битной преамбулы")
         }
 
+        val threshold = 2.0 * minPreambleMatches - PREAMBLE_BITS
+        val peaks = ArrayList<Pair<Double, Int>>()
         var bestScore = Double.NEGATIVE_INFINITY
-        var bestPhase = 0
-        var bestIndex = 0
+
         for (phase in 0 until symbolsPerBit) {
             val count = (available - phase + symbolsPerBit - 1) / symbolsPerBit
             if (count < PREAMBLE_BITS) continue
@@ -147,8 +190,19 @@ object BfskDemodulator {
                 )
                 if (position % 2 == 0) even += value else odd += value
             }
-            var localBestScore = even - odd
-            var localBestIndex = 0
+
+            // Первые несколько положений на фазу, начиная с самых ранних.
+            // Брать глобальные максимумы нельзя: на длинной записи это
+            // окажутся последние кадры, и сканер файла перепрыгнет через
+            // начало. Несколько позиций нужны из-за периодичности `1010…` и
+            // шума.
+            var offered = 0
+            var localScore = even - odd
+            if (localScore > bestScore) bestScore = localScore
+            if (localScore >= threshold) {
+                peaks.add(Pair(localScore, from + phase))
+                offered++
+            }
             for (index in 1..(count - PREAMBLE_BITS)) {
                 val leaving = BfskModulator.sign(
                     metric[from + phase + (index - 1) * symbolsPerBit]
@@ -160,21 +214,16 @@ object BfskDemodulator {
                 val nextOdd = even - leaving + entering
                 even = nextEven
                 odd = nextOdd
-                val score = even - odd
-                if (score > localBestScore) {
-                    localBestScore = score
-                    localBestIndex = index
+                localScore = even - odd
+                if (localScore > bestScore) bestScore = localScore
+                if (localScore >= threshold && offered < 8) {
+                    peaks.add(Pair(localScore, from + phase + index * symbolsPerBit))
+                    offered++
                 }
-            }
-            if (localBestScore > bestScore) {
-                bestScore = localBestScore
-                bestPhase = phase
-                bestIndex = localBestIndex
             }
         }
 
-        val threshold = 2.0 * minPreambleMatches - PREAMBLE_BITS
-        if (bestScore < threshold) {
+        if (peaks.isEmpty()) {
             val matches = ((bestScore + PREAMBLE_BITS) / 2.0).roundToInt().coerceAtLeast(0)
             throw SignalNotFound(
                 "преамбула не найдена: лучшее совпадение $matches/$PREAMBLE_BITS " +
@@ -182,49 +231,85 @@ object BfskDemodulator {
             )
         }
 
-        val coarseRelative = bestPhase + bestIndex * symbolsPerBit
-        val low = maxOf(0, coarseRelative - symbolsPerBit)
-        var high = minOf(coarseRelative, available - span)
-        if (high < low) high = low
+        peaks.sortByDescending { it.first }
+        val coarsePositions = ArrayList<Pair<Double, Int>>()
+        for (peak in peaks) {
+            if (coarsePositions.all {
+                    kotlin.math.abs(peak.second - it.second) > symbolsPerBit / 2
+                }
+            ) {
+                coarsePositions.add(peak)
+            }
+            if (coarsePositions.size >= limit) break
+        }
 
-        var bestRelative = coarseRelative
-        var bestResponse = Double.NEGATIVE_INFINITY
-        for (sample in low..high) {
-            var response = 0.0
+        val candidates = ArrayList<FrameStart>()
+        for ((_, coarse) in coarsePositions) {
+            val low = maxOf(0, coarse - symbolsPerBit)
+            var high = minOf(coarse, metric.size - span)
+            if (high < low) high = low
+
+            var bestRelative = coarse
+            var bestResponse = Double.NEGATIVE_INFINITY
+            for (sample in low..high) {
+                var response = 0.0
+                for (position in 0 until PREAMBLE_BITS) {
+                    response += PREAMBLE_PATTERN[position] *
+                        metric[sample + position * symbolsPerBit]
+                }
+                if (response > bestResponse) {
+                    bestResponse = response
+                    bestRelative = sample
+                }
+            }
+
+            var matches = 0
             for (position in 0 until PREAMBLE_BITS) {
-                response += PREAMBLE_PATTERN[position] *
-                    metric[from + sample + position * symbolsPerBit]
+                val observed = metric[bestRelative + position * symbolsPerBit] > 0.0
+                val expected = PREAMBLE_PATTERN[position] > 0.0
+                if (observed == expected) matches++
             }
-            if (response > bestResponse) {
-                bestResponse = response
-                bestRelative = sample
-            }
-        }
-
-        // Сравниваем наблюдаемый бит с ожидаемым 1010…, а не просто считаем
-        // положительные значения: у преамбулы ровно 16 единиц из 32.
-        var matches = 0
-        for (position in 0 until PREAMBLE_BITS) {
-            val observed = metric[from + bestRelative + position * symbolsPerBit] > 0.0
-            val expected = PREAMBLE_PATTERN[position] > 0.0
-            if (observed == expected) matches++
-        }
-        if (matches < minPreambleMatches) {
-            throw SignalNotFound(
-                "преамбула не подтверждена: $matches/$PREAMBLE_BITS " +
-                    "(требуется $minPreambleMatches)"
+            if (matches < minPreambleMatches) continue
+            candidates.add(
+                FrameStart(
+                    sample = bestRelative,
+                    preambleMatches = matches,
+                    coarseSample = coarse
+                )
             )
         }
 
-        return FrameStart(
-            sample = from + bestRelative,
-            preambleMatches = matches,
-            coarseSample = from + coarseRelative
-        )
+        if (candidates.isEmpty()) {
+            throw SignalNotFound(
+                "преамбула не подтверждена: ни один из ${coarsePositions.size} " +
+                    "кандидатов не дал $minPreambleMatches/$PREAMBLE_BITS"
+            )
+        }
+        return candidates
+    }
+
+    /**
+     * Find the best frame start. Kept for diagnostics and for callers that
+     * resynchronise after a damaged frame; full decoding uses
+     * [findFrameCandidates] and validates CRC for every candidate.
+     */
+    fun findFrameStart(
+        metric: FloatArray,
+        profile: BfskProfile,
+        minPreambleMatches: Int = PREAMBLE_BITS,
+        from: Int = 0
+    ): FrameStart {
+        return findFrameCandidates(
+            metric,
+            profile,
+            minPreambleMatches = minPreambleMatches,
+            from = from,
+            limit = 1
+        ).first()
     }
 
     fun decodeFromMetric(
-        metric: DoubleArray,
+        metric: FloatArray,
         profile: BfskProfile,
         start: FrameStart,
         maxPayloadBytes: Int = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES,
@@ -305,6 +390,14 @@ object BfskDemodulator {
         )
     }
 
+    /**
+     * Decode a frame from PCM samples.
+     *
+     * Every plausible preamble position is tried; the first frame that passes
+     * sync word, version, length and CRC-16 is accepted. If none passes, the
+     * error of the best candidate is thrown, because it describes why the
+     * reception failed.
+     */
     fun decode(
         samples: FloatArray,
         profile: BfskProfile,
@@ -312,14 +405,75 @@ object BfskDemodulator {
         minPreambleMatches: Int = PREAMBLE_BITS
     ): DecodedFrame {
         val metric = bitMetric(samples, profile)
-        val start = findFrameStart(metric, profile, minPreambleMatches)
-        return decodeFromMetric(
+        val candidates = findFrameCandidates(metric, profile, minPreambleMatches)
+        return decodeCandidates(
             metric,
             profile,
-            start,
+            candidates,
             maxPayloadBytes = maxPayloadBytes,
             minPreambleMatches = minPreambleMatches
         )
+    }
+
+    /**
+     * Decode a frame, trying every candidate and then a small fine shift of
+     * the start.
+     *
+     * The coarse refinement gives a plateau almost one symbol wide: on a clean
+     * signal several neighbouring samples produce the same preamble, but an
+     * energy window shifted by a dozen samples can catch the next symbol and
+     * corrupt one bit. CRC-16 is the only reliable arbiter, so candidates are
+     * tried as is, then shifted by ±1, ±2, … samples up to half a symbol.
+     */
+    fun decodeCandidates(
+        metric: FloatArray,
+        profile: BfskProfile,
+        candidates: List<FrameStart>,
+        maxPayloadBytes: Int = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES,
+        minPreambleMatches: Int = PREAMBLE_BITS
+    ): DecodedFrame {
+        var firstError: ReceiverError? = null
+        for (start in candidates) {
+            try {
+                return decodeFromMetric(
+                    metric,
+                    profile,
+                    start,
+                    maxPayloadBytes = maxPayloadBytes,
+                    minPreambleMatches = minPreambleMatches
+                )
+            } catch (error: ReceiverError) {
+                if (firstError == null) firstError = error
+            }
+        }
+
+        val half = profile.samplesPerSymbol / 2
+        for (distance in 1..half) {
+            for (start in candidates) {
+                for (direction in intArrayOf(-1, 1)) {
+                    val sample = start.sample + direction * distance
+                    if (sample < 0) continue
+                    val trial = FrameStart(
+                        sample = sample,
+                        preambleMatches = start.preambleMatches,
+                        coarseSample = start.coarseSample
+                    )
+                    try {
+                        return decodeFromMetric(
+                            metric,
+                            profile,
+                            trial,
+                            maxPayloadBytes = maxPayloadBytes,
+                            minPreambleMatches = minPreambleMatches
+                        )
+                    } catch (_: ReceiverError) {
+                        // Следующий сдвиг.
+                    }
+                }
+            }
+        }
+
+        throw firstError ?: SignalNotFound("не найдено ни одного кандидата начала кадра")
     }
 
     /**
@@ -327,7 +481,7 @@ object BfskDemodulator {
      * The preamble refinement may pick a sample a few positions too late.
      */
     private fun fitFrameStart(
-        metric: DoubleArray,
+        metric: FloatArray,
         start: Int,
         totalBits: Int,
         symbolsPerBit: Int
@@ -343,7 +497,7 @@ object BfskDemodulator {
     }
 
     private fun readBits(
-        metric: DoubleArray,
+        metric: FloatArray,
         start: Int,
         count: Int,
         symbolsPerBit: Int

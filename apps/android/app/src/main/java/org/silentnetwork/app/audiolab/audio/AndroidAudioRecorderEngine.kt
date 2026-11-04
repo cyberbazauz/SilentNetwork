@@ -207,6 +207,12 @@ class AndroidAudioRecorderEngine(
                 }
 
                 val finalPcm = outputStream.toByteArray()
+                // Ручная остановка — это отмена: частичный буфер не должен
+                // декодироваться как принятый кадр. При естественном
+                // завершении записи _isRecording остаётся true до finally.
+                if (!_isRecording.get() || Thread.currentThread().isInterrupted) {
+                    return@Thread
+                }
                 onComplete(finalPcm, chosenRate)
             } catch (t: Throwable) {
                 if (_isRecording.get()) {

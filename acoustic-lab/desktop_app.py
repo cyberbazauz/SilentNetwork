@@ -1211,7 +1211,7 @@ class DesktopApp:
         outer, body = self._card(
             parent,
             "Передать файл",
-            "Файл до 4096 байт: MANIFEST / DATA / END внутри кадров Frame v1",
+            "Файл до 8192 байт: MANIFEST / DATA / END внутри кадров Frame v1",
         )
         outer.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
         body.columnconfigure(1, weight=1)
@@ -1238,7 +1238,7 @@ class DesktopApp:
         ttk.Label(
             body,
             text=(
-                "Один файл 0…4096 байт, имя до 40 байт UTF-8. "
+                "Один файл 0…8192 байт, имя до 40 байт UTF-8. "
                 "SHA-256 проверяет целостность, но не аутентифицирует отправителя."
             ),
             style="CardMuted.TLabel",
@@ -1354,8 +1354,9 @@ class DesktopApp:
         ttk.Label(
             body,
             text=(
-                "Файл 100 байт звучит около 11 с, 4096 байт — около 182 с. "
-                "Запись должна покрыть весь сигнал и паузы."
+                "Файл 100 байт звучит около 11 с, 4096 байт — около 182 с, "
+                "8192 байт — около 364 с. Запись должна покрыть весь сигнал "
+                "и паузы; для 8192 байт выберите не меньше 420 с."
             ),
             style="CardMuted.TLabel",
             wraplength=460,
@@ -1924,7 +1925,7 @@ class DesktopApp:
         limit = (
             file_desktop.file_transfer.MAX_FILE_BYTES
             if file_desktop is not None
-            else 4096
+            else 8192
         )
         if size > limit:
             self.file_generated_info.configure(
@@ -1968,6 +1969,8 @@ class DesktopApp:
                 f"Готово: {generated.filename} · {generated.file_size} байт · "
                 f"{generated.packet_count} пакетов (DATA {generated.total_chunks}) · "
                 f"{generated.file_duration_s:.2f} с\n"
+                f"Запись для приёма: не меньше "
+                f"{file_desktop.recommended_record_seconds(generated.file_duration_s):.0f} с\n"
                 f"Файл SHA-256: {generated.sha256}\n"
                 f"WAV: {generated.wav_path.name}"
             )
@@ -2299,7 +2302,7 @@ class DesktopApp:
             ),
             "file_too_large": (
                 "Файл слишком велик",
-                "Файловый слой v0 принимает не более 4096 байт.",
+                "Файловый слой v0 принимает не более 8192 байт.",
             ),
             "output_error": (
                 "Не удалось сохранить файл",

@@ -2,7 +2,7 @@
   "schema": "silentnetwork.acoustic-lab.file-transfer-vectors/1",
   "ft_version": 1,
   "chunk_data_bytes": 54,
-  "max_file_bytes": 4096,
+  "max_file_bytes": 8192,
   "max_filename_bytes": 40,
   "vectors": [
     {

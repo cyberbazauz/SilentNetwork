@@ -153,7 +153,7 @@ def test_fixture_schema_and_limits() -> None:
     assert FIXTURE["chunk_data_bytes"] == CHUNK_DATA_BYTES
     assert FIXTURE["max_file_bytes"] == MAX_FILE_BYTES
     assert FIXTURE["max_filename_bytes"] == MAX_FILENAME_BYTES
-    assert MAX_CHUNKS == 76
+    assert MAX_CHUNKS == 152
 
 
 def test_fixture_matches_transfer_plan() -> None:
@@ -188,6 +188,7 @@ def test_expected_chunks_boundaries() -> None:
     assert expected_chunks(54) == 1
     assert expected_chunks(55) == 2
     assert expected_chunks(4096) == 76
+    assert expected_chunks(8192) == 152
 
 
 def test_plan_for_empty_file_has_manifest_and_end_only() -> None:
@@ -210,7 +211,7 @@ def test_plan_repeats_manifest_every_16_chunks() -> None:
 
     big = build_transfer_plan(bytes(MAX_FILE_BYTES), "max.bin", 4)
     assert big.total_chunks == MAX_CHUNKS
-    assert big.packet_count == 1 + MAX_CHUNKS + 4 + 2
+    assert big.packet_count == 1 + MAX_CHUNKS + (MAX_CHUNKS - 1) // 16 + 2
 
 
 def test_plan_rejects_bad_parameters() -> None:
@@ -448,7 +449,7 @@ def test_assembler_detects_sha256_mismatch() -> None:
 
 
 @pytest.mark.parametrize(
-    "size", [0, 1, 53, 54, 55, 100, 1000, 4096], ids=lambda value: f"{value}B"
+    "size", [0, 1, 53, 54, 55, 100, 1000, 4096, 8192], ids=lambda value: f"{value}B"
 )
 def test_file_round_trip_through_wav(tmp_path: Path, size: int) -> None:
     data = bytes((index * 37 + 11) % 256 for index in range(size))

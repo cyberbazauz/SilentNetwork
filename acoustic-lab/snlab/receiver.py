@@ -214,15 +214,23 @@ def decode_samples(
     max_payload_bytes: int = MAX_PAYLOAD_BYTES,
     min_preamble_matches: int = PREAMBLE_BITS,
 ) -> DecodedFrame:
-    """Восстановить кадр из массива отсчётов в долях полной шкалы."""
+    """Восстановить кадр из массива отсчётов в долях полной шкалы.
+
+    Перебираются все правдоподобные положения начала кадра. Принимается
+    только тот, который прошёл sync word, версию, длину и CRC-16. Если не
+    прошёл ни один, выбрасывается ошибка лучшего кандидата — она и описывает,
+    почему приём не удался.
+    """
     metric = bit_metric(samples, profile)
-    start = find_frame_start(
-        metric, profile, min_preamble_matches=min_preamble_matches
-    )
-    return decode_from_metric(
+    candidates = find_frame_candidates(
         metric,
         profile,
-        start,
+        min_preamble_matches=min_preamble_matches,
+    )
+    return decode_candidates(
+        metric,
+        profile,
+        candidates,
         max_payload_bytes=max_payload_bytes,
         min_preamble_matches=min_preamble_matches,
     )
@@ -429,90 +437,192 @@ def bit_metric(samples: np.ndarray, profile: BfskProfile) -> np.ndarray:
     return mark_energy - space_energy
 
 
-def find_frame_start(
+def find_frame_candidates(
     metric: np.ndarray,
     profile: BfskProfile,
     *,
     min_preamble_matches: int = PREAMBLE_BITS,
-) -> FrameStart:
-    """Найти преамбулу и уточнить начало кадра.
+    limit: int = 8,
+) -> list[FrameStart]:
+    """Найти все правдоподобные начала кадра, начиная с лучшего.
 
-    Сначала для каждой фазы внутри символа проверяется корреляция знаков
-    разностной энергии с шаблоном `1010…`. Затем начало уточняется по
-    максимуму суммарного отклика на 32 символа преамбулы.
+    Преамбула `1010…` периодична с периодом в два символа, поэтому сдвиг на
+    чётное число символов даёт **такую же** корреляцию. Раньше выбиралось
+    только первое такое положение, и на чистом сигнале кадр иногда
+    декодировался со сдвигом на 2 символа: преамбула «совпадала», а
+    синхрослово — нет. Здесь возвращаются все кандидаты, а окончательное
+    решение принимает `decode_samples` по sync word, версии, длине и CRC.
 
     Args:
         metric: разность энергий mark/space для каждого положения окна.
         profile: BFSK-профиль.
         min_preamble_matches: минимальное число совпавших бит преамбулы.
-            По умолчанию 32/32 — строгий файловый режим. Для реального
-            акустического канала допускается 28/32.
+        limit: максимум возвращаемых кандидатов.
 
     Raises:
-        ReceiverError: порог вне диапазона 1..32.
-        SignalNotFound: совпадение преамбулы меньше `min_preamble_matches`.
+        SignalNotFound: ни один кандидат не набрал нужного совпадения.
     """
     validate_min_preamble_matches(min_preamble_matches)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ReceiverError("limit должен быть положительным целым числом")
+
     symbols_per_bit = profile.samples_per_symbol
     span = PREAMBLE_BITS * symbols_per_bit
     if metric.size < span:
         raise SignalNotFound("сигнала недостаточно для 32-битной преамбулы")
 
+    threshold = 2 * min_preamble_matches - PREAMBLE_BITS
+    peaks: list[tuple[float, int]] = []
     best_score = -np.inf
-    best_phase = 0
-    best_index = 0
     for phase in range(symbols_per_bit):
         sequence = metric[phase::symbols_per_bit]
         if sequence.size < PREAMBLE_BITS:
             continue
         signs = np.sign(sequence)
         correlation = np.correlate(signs, PREAMBLE_PATTERN, mode="valid")
-        index = int(np.argmax(correlation))
-        score = float(correlation[index])
-        if score > best_score:
-            best_score = score
-            best_phase = phase
-            best_index = index
+        best_score = max(best_score, float(np.max(correlation)))
+        # Несколько первых положений на фазу, начиная с самых ранних.
+        # Брать глобальные максимумы нельзя: на длинной записи это окажутся
+        # последние кадры, и сканер файла перепрыгнет через начало.
+        for index in np.flatnonzero(correlation >= threshold)[:8]:
+            score = float(correlation[index])
+            peaks.append((score, phase + int(index) * symbols_per_bit))
 
-    if best_score < 2 * min_preamble_matches - PREAMBLE_BITS:
+    if not peaks:
         matches = max(0, int(round((best_score + PREAMBLE_BITS) / 2.0)))
         raise SignalNotFound(
             f"преамбула не найдена: лучшее совпадение {matches}/{PREAMBLE_BITS} "
             f"(требуется {min_preamble_matches})"
         )
 
-    coarse = best_phase + best_index * symbols_per_bit
-    low = max(0, coarse - symbols_per_bit)
-    high = min(coarse, metric.size - span)
-    if high < low:  # pragma: no cover - защита от арифметической ошибки
-        high = low
+    peaks.sort(key=lambda item: item[0], reverse=True)
+    coarse_positions: list[tuple[float, int]] = []
+    for score, position in peaks:
+        if all(
+            abs(position - other) > symbols_per_bit // 2
+            for _, other in coarse_positions
+        ):
+            coarse_positions.append((score, position))
+        if len(coarse_positions) >= limit:
+            break
 
     offsets = np.arange(0, span, symbols_per_bit)
-    best_sample = coarse
-    best_response = -np.inf
-    for sample in range(low, high + 1):
-        response = float(np.dot(PREAMBLE_PATTERN, metric[sample + offsets]))
-        if response > best_response:
-            best_response = response
-            best_sample = sample
+    expected = (PREAMBLE_PATTERN > 0).astype(np.uint8)
+    candidates: list[FrameStart] = []
+    for _, coarse in coarse_positions:
+        low = max(0, coarse - symbols_per_bit)
+        high = min(coarse, metric.size - span)
+        if high < low:  # pragma: no cover - защита от арифметической ошибки
+            high = low
 
-    matches = int(
-        np.count_nonzero(
-            (metric[best_sample + offsets] > 0).astype(np.uint8)
-            == (PREAMBLE_PATTERN > 0).astype(np.uint8)
+        best_sample = coarse
+        best_response = -np.inf
+        for sample in range(low, high + 1):
+            response = float(np.dot(PREAMBLE_PATTERN, metric[sample + offsets]))
+            if response > best_response:
+                best_response = response
+                best_sample = sample
+
+        observed = (metric[best_sample + offsets] > 0).astype(np.uint8)
+        matches = int(np.count_nonzero(observed == expected))
+        if matches < min_preamble_matches:
+            continue
+        candidates.append(
+            FrameStart(
+                sample=best_sample,
+                preamble_matches=matches,
+                coarse_sample=coarse,
+            )
         )
-    )
-    if matches < min_preamble_matches:
+
+    if not candidates:
         raise SignalNotFound(
-            f"преамбула не подтверждена: {matches}/{PREAMBLE_BITS} "
-            f"(требуется {min_preamble_matches})"
+            f"преамбула не подтверждена: ни один из {len(coarse_positions)} "
+            f"кандидатов не дал {min_preamble_matches}/{PREAMBLE_BITS}"
         )
+    return candidates
 
-    return FrameStart(
-        sample=best_sample,
-        preamble_matches=matches,
-        coarse_sample=coarse,
-    )
+
+def find_frame_start(
+    metric: np.ndarray,
+    profile: BfskProfile,
+    *,
+    min_preamble_matches: int = PREAMBLE_BITS,
+) -> FrameStart:
+    """Найти преамбулу и уточнить начало кадра (лучший кандидат).
+
+    Обёртка над `find_frame_candidates` для диагностики и обратной
+    совместимости. Полное декодирование перебирает всех кандидатов и
+    выбирает тот, который проходит sync word, версию, длину и CRC.
+    """
+    return find_frame_candidates(
+        metric,
+        profile,
+        min_preamble_matches=min_preamble_matches,
+        limit=1,
+    )[0]
+
+
+def decode_candidates(
+    metric: np.ndarray,
+    profile: BfskProfile,
+    candidates: list[FrameStart],
+    *,
+    max_payload_bytes: int = MAX_PAYLOAD_BYTES,
+    min_preamble_matches: int = PREAMBLE_BITS,
+) -> DecodedFrame:
+    """Декодировать кадр, перебирая кандидатов и мелкий сдвиг начала.
+
+    Грубое уточнение начала кадра даёт плато шириной почти в символ: на
+    чистом сигнале несколько соседних отсчётов дают одинаковую преамбулу,
+    но окно энергии, сдвинутое на десяток отсчётов, может «зацепить»
+    соседний символ и испортить один бит. CRC-16 — единственный надёжный
+    арбитр, поэтому сначала пробуются кандидаты как есть, затем те же
+    кандидаты со сдвигом на ±1, ±2, … отсчётов до половины символа.
+
+    Raises:
+        ReceiverError: ни один кандидат и ни один сдвиг не прошёл проверки.
+    """
+    first_error: ReceiverError | None = None
+    for start in candidates:
+        try:
+            return decode_from_metric(
+                metric,
+                profile,
+                start,
+                max_payload_bytes=max_payload_bytes,
+                min_preamble_matches=min_preamble_matches,
+            )
+        except ReceiverError as exc:  # noqa: PERF203 - кандидатов единицы
+            if first_error is None:
+                first_error = exc
+
+    half = profile.samples_per_symbol // 2
+    for distance in range(1, half + 1):
+        for start in candidates:
+            for direction in (-1, 1):
+                sample = start.sample + direction * distance
+                if sample < 0:
+                    continue
+                trial = FrameStart(
+                    sample=sample,
+                    preamble_matches=start.preamble_matches,
+                    coarse_sample=start.coarse_sample,
+                )
+                try:
+                    return decode_from_metric(
+                        metric,
+                        profile,
+                        trial,
+                        max_payload_bytes=max_payload_bytes,
+                        min_preamble_matches=min_preamble_matches,
+                    )
+                except ReceiverError:
+                    continue
+
+    if first_error is None:  # pragma: no cover - защита от пустого списка
+        raise SignalNotFound("не найдено ни одного кандидата начала кадра")
+    raise first_error
 
 
 def _window_energy(

@@ -81,7 +81,7 @@ class FileTransferVectorsTest {
         assertEquals(FileTransferCodec.MAX_FILE_BYTES, fixture.getInt("max_file_bytes"))
         assertEquals(FileTransferCodec.MAX_FILENAME_BYTES, fixture.getInt("max_filename_bytes"))
         assertEquals(54, FileTransferCodec.CHUNK_DATA_BYTES)
-        assertEquals(76, FileTransferCodec.MAX_CHUNKS)
+        assertEquals(152, FileTransferCodec.MAX_CHUNKS)
     }
 
     @Test
@@ -148,24 +148,25 @@ class FileTransferVectorsTest {
         assertEquals(1, FileTransferCodec.expectedChunks(54))
         assertEquals(2, FileTransferCodec.expectedChunks(55))
         assertEquals(76, FileTransferCodec.expectedChunks(4096))
+        assertEquals(152, FileTransferCodec.expectedChunks(8192))
 
         val small = FileTransferCodec.buildTransferPlan(ByteArray(100), "a.bin", 3)
         assertEquals(2, small.totalChunks)
         assertEquals(5, small.packetCount)
         assertEquals(listOf("manifest", "data", "data", "end", "end"), small.packets.map { it.typeName })
 
-        val max = FileTransferCodec.buildTransferPlan(ByteArray(4096), "max.bin", 3)
-        assertEquals(76, max.totalChunks)
-        assertEquals(83, max.packetCount)
+        val max = FileTransferCodec.buildTransferPlan(ByteArray(8192), "max.bin", 3)
+        assertEquals(152, max.totalChunks)
+        assertEquals(164, max.packetCount)
         assertEquals(
             "MANIFEST повторяется после каждых 16 DATA-чанков",
-            4,
+            9,
             max.packets.count { it.typeName == "manifest" } - 1
         )
 
         assertTrue(
             runCatching {
-                FileTransferCodec.buildTransferPlan(ByteArray(4097), "big.bin", 1)
+                FileTransferCodec.buildTransferPlan(ByteArray(8193), "big.bin", 1)
             }.exceptionOrNull() is FileTransferCodec.FileTooLargeError
         )
         assertTrue(
