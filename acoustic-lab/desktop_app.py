@@ -91,6 +91,46 @@ def prepare_tcl_environment() -> list[str]:
     return applied
 
 
+def enable_high_dpi() -> None:
+    """Включить резкую отрисовку Tkinter на Windows.
+
+    Без этого Windows растягивает окно как растровую картинку: шрифты и
+    линии выглядят размытыми. Вызывать до создания ``tk.Tk()``.
+    """
+
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        try:
+            # PROCESS_PER_MONITOR_DPI_AWARE_V2 (Windows 10 1703+).
+            ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        except Exception:  # noqa: BLE001 - более старые версии Windows
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:  # noqa: BLE001
+                ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:  # noqa: BLE001 - DPI не критичен для работы
+        pass
+
+
+def configure_dpi_scaling(root: Any) -> float:
+    """Согласовать размеры Tk со Scaling Windows. Вернуть масштаб к 96 DPI."""
+
+    try:
+        dpi = float(root.winfo_fpixels("1i"))
+    except Exception:  # noqa: BLE001
+        return 1.0
+    if dpi <= 0:
+        return 1.0
+    try:
+        root.tk.call("tk", "scaling", dpi / 72.0)
+    except Exception:  # noqa: BLE001
+        pass
+    return max(1.0, dpi / 96.0)
+
+
 def _configure_style(root: Any) -> None:
     """Спокойная светлая тема вместо стандартного серого Tkinter."""
     style = ttk.Style(root)
@@ -174,6 +214,29 @@ def _configure_style(root: Any) -> None:
         background=[("active", "#AEBCCD"), ("pressed", "#9AAABF")],
     )
 
+    style.configure(
+        "TNotebook",
+        background=COLOR_BG,
+        borderwidth=0,
+        tabmargins=(0, 0, 0, 10),
+    )
+    style.configure(
+        "TNotebook.Tab",
+        background="#E7ECF3",
+        foreground=COLOR_MUTED,
+        padding=(20, 9),
+        borderwidth=0,
+        font=("Segoe UI", 10, "bold"),
+    )
+    style.map(
+        "TNotebook.Tab",
+        background=[("selected", COLOR_CARD), ("active", "#EEF2F8")],
+        foreground=[("selected", COLOR_ACCENT), ("active", COLOR_TEXT)],
+        lightcolor=[("selected", COLOR_CARD)],
+        darkcolor=[("selected", COLOR_CARD)],
+        bordercolor=[("selected", COLOR_CARD)],
+    )
+
 
 class DesktopApp:
     """Тонкая Tkinter-оболочка над `snlab.desktop`."""
@@ -231,6 +294,10 @@ class DesktopApp:
         self._playback_queue: queue.Queue[tuple[str, Any]] | None = None
         self._spectrogram_image: Any | None = None
         self._device_panel_open = False
+        self._scroll_syncs: list[Callable[[], None]] = []
+        self._scroll_canvases: list[tuple[Any, Any]] = []
+        self._device_tab: Any | None = None
+        self.header_device_label: Any | None = None
 
         self.data_input_devices: list[Any] = []
         self.data_selected_input: Any | None = None
@@ -256,6 +323,7 @@ class DesktopApp:
         self._file_play_queue: queue.Queue[tuple[str, Any]] | None = None
         self._file_record_queue: queue.Queue[tuple[str, Any]] | None = None
 
+        self.ui_scale = configure_dpi_scaling(root)
         _configure_style(root)
         self._build_ui()
         self._update_playback_state()
@@ -264,15 +332,32 @@ class DesktopApp:
         self.refresh_file_inputs()
         self._update_data_play_state()
         self._update_file_play_state()
+        if not self._device_panel_open:
+            self._toggle_device_panel()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------ UI
 
+    def _px(self, value: float) -> int:
+        """Логические пиксели → физические для текущего масштаба Windows."""
+
+        return max(1, int(round(value * self.ui_scale)))
+
     def _build_ui(self) -> None:
         self.root.title(WINDOW_TITLE)
         self.root.configure(background=COLOR_BG)
-        self.root.geometry("1220x900")
-        self.root.minsize(1_020, 720)
+        scale = self.ui_scale
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        width = int(min(1220 * scale, screen_w * 0.94))
+        height = int(min(900 * scale, screen_h * 0.90))
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 3)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.root.minsize(
+            int(min(940 * scale, screen_w * 0.80)),
+            int(min(620 * scale, screen_h * 0.70)),
+        )
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
@@ -283,149 +368,194 @@ class DesktopApp:
     # ---------------------------------------------------------------- header
 
     def _build_header(self) -> None:
-        header = ttk.Frame(self.root, padding=(18, 14, 18, 8))
+        header = tk.Frame(self.root, background=COLOR_CARD)
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
 
-        titles = ttk.Frame(header)
-        titles.grid(row=0, column=0, sticky="w")
-        ttk.Label(titles, text="SilentNetwork", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
+        titles = tk.Frame(header, background=COLOR_CARD)
+        titles.grid(
+            row=0, column=0, sticky="w",
+            padx=(self._px(22), self._px(16)), pady=(self._px(13), self._px(11)),
+        )
+        tk.Label(
             titles,
-            text="Акустическая лаборатория · передача данных через звук",
-            style="Subtitle.TLabel",
+            text="SilentNetwork",
+            background=COLOR_CARD,
+            foreground=COLOR_TEXT,
+            font=("Segoe UI", 18, "bold"),
+            anchor="w",
+        ).pack(anchor="w")
+        tk.Label(
+            titles,
+            text="Акустическая лаборатория · звук вместо сети",
+            background=COLOR_CARD,
+            foreground=COLOR_MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
         ).pack(anchor="w", pady=(1, 0))
 
-        mode_text = "Звук включён"
-        mode_bg, mode_fg = "#FFF4E5", COLOR_WARNING
-        tk.Label(
-            header,
-            text=mode_text,
-            background=mode_bg,
-            foreground=mode_fg,
-            font=("Segoe UI", 9, "bold"),
+        tools = tk.Frame(header, background=COLOR_CARD)
+        tools.grid(
+            row=0, column=1, sticky="e",
+            padx=(0, self._px(20)), pady=(self._px(13), self._px(11)),
+        )
+        self.header_device_label = tk.Label(
+            tools,
+            text="Динамик: поиск…",
+            background=COLOR_NEUTRAL_BG,
+            foreground=COLOR_TEXT,
+            font=("Segoe UI", 9),
             padx=12,
             pady=5,
-        ).grid(row=0, column=1, sticky="e")
+            anchor="w",
+        )
+        self.header_device_label.pack(side="left", padx=(0, 8))
+        ttk.Button(
+            tools,
+            text="Настроить звук",
+            style="Secondary.TButton",
+            command=self._open_device_tab,
+        ).pack(side="left")
+
+    def _open_device_tab(self) -> None:
+        try:
+            if self._device_tab is not None:
+                self.tabview.select(self._device_tab)
+        except Exception:  # noqa: BLE001 - вкладка может быть ещё не создана
+            pass
 
     # --------------------------------------------------------------- content
 
     def _build_content(self) -> None:
-        shell = ttk.Frame(self.root, padding=(14, 6, 14, 6))
+        shell = ttk.Frame(
+            self.root,
+            padding=(self._px(16), self._px(12), self._px(16), self._px(6)),
+        )
         shell.grid(row=1, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(0, weight=1)
 
-        # Прокручиваемая область: при раскрытии «Подробнее» карточка анализа
-        # становится выше окна, и без прокрутки нижние элементы были бы
-        # недоступны.
-        self.content_canvas = tk.Canvas(
-            shell,
+        self.tabview = ttk.Notebook(shell)
+        self.tabview.grid(row=0, column=0, sticky="nsew")
+        self.tabview.bind(
+            "<<NotebookTabChanged>>", lambda _event: self._request_content_sync()
+        )
+
+        pad = self._px(14)
+        file_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
+        file_body = self._scrollable(file_tab)
+        file_body.columnconfigure(0, weight=1, uniform="file")
+        file_body.columnconfigure(1, weight=1, uniform="file")
+        file_body.rowconfigure(0, weight=1)
+        self._build_file_send_section(file_body)
+        self._build_file_receive_section(file_body)
+        self.tabview.add(file_tab, text="  Файл  ")
+
+        data_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
+        data_body = self._scrollable(data_tab)
+        data_body.columnconfigure(0, weight=1, uniform="data")
+        data_body.columnconfigure(1, weight=1, uniform="data")
+        data_body.rowconfigure(0, weight=1)
+        self._build_data_send_section(data_body)
+        self._build_data_receive_section(data_body)
+        self.tabview.add(data_tab, text="  Сообщение  ")
+
+        tone_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
+        tone_body = self._scrollable(tone_tab)
+        tone_body.columnconfigure(0, weight=1, uniform="tone")
+        tone_body.columnconfigure(1, weight=1, uniform="tone")
+        tone_body.rowconfigure(0, weight=1)
+        tone_left = ttk.Frame(tone_body)
+        tone_left.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        tone_left.columnconfigure(0, weight=1)
+        tone_left.rowconfigure(0, weight=1)
+        tone_right = ttk.Frame(tone_body)
+        tone_right.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        tone_right.columnconfigure(0, weight=1)
+        tone_right.rowconfigure(0, weight=1)
+        self._build_generator_section(tone_left)
+        self._build_phone_section(tone_right)
+        self.tabview.add(tone_tab, text="  Тон и анализ  ")
+
+        device_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
+        device_body = self._scrollable(device_tab)
+        device_body.columnconfigure(0, weight=1)
+        device_body.rowconfigure(0, weight=1)
+        self._build_device_section(device_body)
+        self.tabview.add(device_tab, text="  Устройства  ")
+        self._device_tab = device_tab
+
+        self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
+
+    def _scrollable(self, parent: Any) -> Any:
+        """Вернуть прокручиваемую область внутри вкладки."""
+
+        holder = ttk.Frame(parent)
+        holder.grid(row=0, column=0, sticky="nsew")
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+        holder.columnconfigure(0, weight=1)
+        holder.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(
+            holder,
             background=COLOR_BG,
             highlightthickness=0,
             borderwidth=0,
         )
-        self.content_canvas.grid(row=0, column=0, sticky="nsew")
-        self.content_scroll = ttk.Scrollbar(
-            shell, orient="vertical", command=self.content_canvas.yview
-        )
-        self.content_scroll.grid(row=0, column=1, sticky="ns")
-        self.content_scroll.grid_remove()
-        self.content_canvas.configure(yscrollcommand=self._on_content_scroll)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        scroll.grid_remove()
+        canvas.configure(yscrollcommand=scroll.set)
 
-        content = ttk.Frame(self.content_canvas)
-        self._content_window = self.content_canvas.create_window(
-            (0, 0), window=content, anchor="nw"
-        )
-        content.columnconfigure(0, weight=1, uniform="card")
-        content.columnconfigure(1, weight=1, uniform="card")
-        content.rowconfigure(0, weight=1)
+        inner = ttk.Frame(canvas)
+        window = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-        content.bind("<Configure>", self._sync_content_scroll)
-        self.content_canvas.bind("<Configure>", self._sync_content_scroll)
-        self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
-        self._content_frame = content
+        def sync() -> None:
+            if not canvas.winfo_exists():
+                return
+            width = canvas.winfo_width()
+            if scroll.winfo_ismapped():
+                width -= scroll.winfo_reqwidth()
+            width = max(1, width)
+            needed = inner.winfo_reqheight()
+            canvas.itemconfigure(window, width=width)
+            canvas.configure(scrollregion=(0, 0, width, needed))
+            if needed > canvas.winfo_height():
+                if not scroll.winfo_ismapped():
+                    scroll.grid()
+            elif scroll.winfo_ismapped():
+                scroll.grid_remove()
+                canvas.yview_moveto(0.0)
 
-        left = ttk.Frame(content)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
-        left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
-
-        right = ttk.Frame(content)
-        right.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(0, weight=1)
-
-        self._build_device_section(left)
-        self._build_generator_section(left)
-        self._build_phone_section(right)
-
-        data_band = ttk.Frame(content)
-        data_band.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(14, 0))
-        data_band.columnconfigure(0, weight=1, uniform="data")
-        data_band.columnconfigure(1, weight=1, uniform="data")
-        self._build_data_send_section(data_band)
-        self._build_data_receive_section(data_band)
-
-        file_band = ttk.Frame(content)
-        file_band.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(14, 0))
-        file_band.columnconfigure(0, weight=1, uniform="file")
-        file_band.columnconfigure(1, weight=1, uniform="file")
-        self._build_file_send_section(file_band)
-        self._build_file_receive_section(file_band)
-
-    def _on_content_scroll(self, first: str, last: str) -> None:
-        self.content_scroll.set(first, last)
-        fits = float(first) <= 0.0 and float(last) >= 1.0
-        if fits:
-            if self.content_scroll.winfo_ismapped():
-                self.content_scroll.grid_remove()
-            self.content_canvas.yview_moveto(0.0)
-        elif not self.content_scroll.winfo_ismapped():
-            self.content_scroll.grid()
-
-    def _sync_content_scroll(self, _event: Any | None = None) -> None:
-        canvas = self.content_canvas
-        if not canvas.winfo_exists():
-            return
-        width = canvas.winfo_width()
-        if self.content_scroll.winfo_ismapped():
-            width -= self.content_scroll.winfo_reqwidth()
-        width = max(1, width)
-        needed = self._content_frame.winfo_reqheight()
-        height = max(needed, canvas.winfo_height())
-        canvas.itemconfigure(self._content_window, width=width, height=height)
-        canvas.configure(scrollregion=(0, 0, width, height))
-        if needed > canvas.winfo_height():
-            if not self.content_scroll.winfo_ismapped():
-                self.content_scroll.grid()
-        elif self.content_scroll.winfo_ismapped():
-            self.content_scroll.grid_remove()
-            canvas.yview_moveto(0.0)
+        inner.bind("<Configure>", lambda _event: sync())
+        canvas.bind("<Configure>", lambda _event: sync())
+        self._scroll_syncs.append(sync)
+        self._scroll_canvases.append((canvas, scroll))
+        return inner
 
     def _request_content_sync(self) -> None:
-        """Пересчитать прокрутку после изменения высоты содержимого.
-
-        Сначала нужно дать Tk пересчитать запрошенные размеры после pack/grid,
-        а затем применить новую область прокрутки.
-        """
+        """Пересчитать прокрутку после изменения высоты содержимого."""
 
         def _run() -> None:
             if not self.root.winfo_exists():
                 return
             self.root.update_idletasks()
-            self._sync_content_scroll()
+            for sync in self._scroll_syncs:
+                sync()
 
         self.root.after_idle(_run)
 
     def _on_content_mousewheel(self, event: Any) -> None:
-        if not self.content_scroll.winfo_ismapped():
-            return
         widget = self.root.winfo_containing(event.x_root, event.y_root)
-        if widget is None or not str(widget).startswith(str(self.content_canvas)):
-            return
-        step = -1 if event.delta > 0 else 1
-        self.content_canvas.yview_scroll(step * 2, "units")
+        while widget is not None:
+            for canvas, scroll in self._scroll_canvases:
+                if widget is canvas and scroll.winfo_ismapped():
+                    step = -1 if event.delta > 0 else 1
+                    canvas.yview_scroll(step * 3, "units")
+                    return
+            widget = getattr(widget, "master", None)
 
     # ---------------------------------------------------------- device card
 
@@ -433,9 +563,9 @@ class DesktopApp:
         outer, body = self._card(
             parent,
             "Динамик ноутбука",
-            "Устройство, через которое прозвучит тестовый сигнал",
+            "Через это устройство прозвучит сигнал",
         )
-        outer.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        outer.grid(row=0, column=0, sticky="nsew", pady=(0, 12))
         body.columnconfigure(0, weight=1)
 
         self.device_name_label = ttk.Label(
@@ -538,7 +668,7 @@ class DesktopApp:
             "Отправить тестовый сигнал",
             "Создайте WAV, затем воспроизведите его вручную",
         )
-        outer.grid(row=1, column=0, sticky="nsew")
+        outer.grid(row=0, column=0, sticky="nsew")
         body.columnconfigure(1, weight=1)
 
         self.frequency_var = tk.StringVar(value="1000")
@@ -2253,15 +2383,18 @@ class DesktopApp:
             highlightthickness=1,
         )
         body = tk.Frame(outer, background=COLOR_CARD)
-        body.pack(fill="both", expand=True, padx=16, pady=14)
+        body.pack(
+            fill="both", expand=True,
+            padx=self._px(18), pady=self._px(16),
+        )
         ttk.Label(body, text=title, style="Section.TLabel").pack(anchor="w")
         if subtitle:
             ttk.Label(
                 body, text=subtitle, style="CardMuted.TLabel",
-                wraplength=500, justify="left",
-            ).pack(anchor="w", pady=(1, 0))
+                wraplength=self._px(540), justify="left",
+            ).pack(anchor="w", pady=(2, 0))
         inner = tk.Frame(body, background=COLOR_CARD)
-        inner.pack(fill="both", expand=True, pady=(6, 0))
+        inner.pack(fill="both", expand=True, pady=(10, 0))
         return outer, inner
 
     def _collapsible(self, parent: Any, title: str) -> tuple[Any, Any]:
@@ -2290,18 +2423,19 @@ class DesktopApp:
     # ---------------------------------------------------------------- footer
 
     def _build_footer(self) -> None:
-        footer = ttk.Frame(self.root, padding=(18, 2, 18, 10))
+        footer = ttk.Frame(
+            self.root,
+            padding=(self._px(20), self._px(4), self._px(20), self._px(8)),
+        )
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
-        note = (
-            "Звук: воспроизведение запускается только вручную и после подтверждения."
-        )
+        note = "Воспроизведение только вручную · после подтверждения"
         ttk.Label(footer, text=note, style="Subtitle.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
             footer,
-            text=f"Результаты: {self.results_dir}",
+            text=f"Результаты: {self.results_dir.name}",
             style="Subtitle.TLabel",
         ).grid(row=0, column=1, sticky="e")
 
@@ -2333,6 +2467,8 @@ class DesktopApp:
             )
         self.selected_device = None
         self.device_name_label.configure(text="Устройство не выбрано")
+        if self.header_device_label is not None:
+            self.header_device_label.configure(text="Динамик: не выбран")
         self._update_playback_state()
         if self.devices:
             preferred = audio.select_preferred_device(self.devices, "output")
@@ -2365,6 +2501,8 @@ class DesktopApp:
             self.device_status.configure(
                 text="Выходных устройств не найдено. Проверьте драйверы Windows."
             )
+            if self.header_device_label is not None:
+                self.header_device_label.configure(text="Динамик не найден")
 
     def _on_device_selected(self, _event: Any | None = None) -> None:
         selection = self.device_tree.selection()
@@ -2381,6 +2519,9 @@ class DesktopApp:
             if device.index == index:
                 self.selected_device = device
                 self.device_name_label.configure(text=device.name)
+                if self.header_device_label is not None:
+                    short = device.name if len(device.name) <= 40 else device.name[:39] + "…"
+                    self.header_device_label.configure(text=f"Динамик: {short}")
                 warning = audio.device_warning(device)
                 text = (
                     f"Доступен · драйвер {device.hostapi_name} · "
@@ -2970,6 +3111,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 4
     prepare_tcl_environment()
+    enable_high_dpi()
     try:
         root = tk.Tk()
     except tk.TclError as exc:

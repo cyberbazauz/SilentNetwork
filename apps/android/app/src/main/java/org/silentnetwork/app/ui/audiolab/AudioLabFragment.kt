@@ -187,6 +187,7 @@ class AudioLabFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        setupModeSwitcher()
         setupTransmitterSection()
         setupReceiverSection()
         setupAnalyzerSection()
@@ -195,6 +196,36 @@ class AudioLabFragment : Fragment() {
         setupCollapsibleSections()
         checkHardwareEffects()
         checkMicPermissionStatus()
+    }
+
+    /**
+     * На экране одновременно виден только один сценарий: файл, сообщение
+     * или тон. Иначе Audio Lab превращается в длинную стену карточек.
+     */
+    private fun setupModeSwitcher() {
+        binding.modeFile.setOnClickListener { selectMode(0) }
+        binding.modeMessage.setOnClickListener { selectMode(1) }
+        binding.modeTone.setOnClickListener { selectMode(2) }
+        selectMode(0)
+    }
+
+    private fun selectMode(selected: Int) {
+        val tabs = listOf(binding.modeFile, binding.modeMessage, binding.modeTone)
+        val panels = listOf(binding.llModeFile, binding.llModeMessage, binding.llModeTone)
+        tabs.forEachIndexed { index, tab ->
+            val active = index == selected
+            tab.setBackgroundResource(
+                if (active) R.drawable.bg_segment_selected
+                else R.drawable.bg_segment_unselected
+            )
+            tab.setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (active) R.color.text_on_accent else R.color.text_secondary
+                )
+            )
+            panels[index].visibility = if (active) View.VISIBLE else View.GONE
+        }
     }
 
     private fun setupCollapsibleSections() {

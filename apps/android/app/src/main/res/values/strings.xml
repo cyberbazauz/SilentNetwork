@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SilentNetwork</string>
-    <string name="app_subtitle">Передача данных через звук</string>
+    <string name="app_subtitle">Звук вместо сети</string>
 
     <!-- Navigation -->
     <string name="tab_status">Статус</string>
@@ -11,8 +11,11 @@
     <string name="tab_settings">Настройки</string>
 
     <!-- Audio Lab -->
-    <string name="audiolab_title">Проверка звукового канала</string>
-    <string name="audiolab_subtitle">Запись сигнала с ноутбука и анализ на телефоне</string>
+    <string name="audiolab_title">Звуковой канал</string>
+    <string name="audiolab_subtitle">Файлы и сообщения через звук</string>
+    <string name="audiolab_mode_file">Файл</string>
+    <string name="audiolab_mode_message">Сообщение</string>
+    <string name="audiolab_mode_tone">Тон</string>
     <string name="audiolab_result_title">Результат</string>
     <string name="audiolab_spectrum_title">Спектр записи</string>
     <string name="audiolab_details_closed">▸ Подробнее</string>
@@ -84,8 +87,8 @@
     <string name="audiolab_timer_format">%1$s / %2$s</string>
 
     <!-- Data link -->
-    <string name="datalink_title">Передача данных</string>
-    <string name="datalink_desc">Короткий текст через звук: Frame v1 и BFSK, до 64 байт UTF-8. CRC-16 обнаруживает ошибки, но не подтверждает отправителя.</string>
+    <string name="datalink_title">Текст через звук</string>
+    <string name="datalink_desc">Короткое сообщение до 64 байт UTF-8. CRC-16 обнаруживает ошибки, но не подтверждает отправителя.</string>
     <string name="datalink_message_label">Сообщение</string>
     <string name="datalink_message_hint">До 64 байт UTF-8, например: Привет</string>
     <string name="datalink_profile_label">Профиль сигнала</string>
@@ -120,8 +123,8 @@
     <string name="datalink_setup_hint">Проверьте, что Windows и Android используют одинаковый профиль сигнала.</string>
 
     <!-- File transfer -->
-    <string name="file_title">Файлы через звук</string>
-    <string name="file_desc">Приём одного файла 0…4096 байт: пакеты MANIFEST/DATA/END внутри Frame v1. Нет ACK, шифрования и AEAD. SHA-256 проверяет целостность, но не подтверждает отправителя.</string>
+    <string name="file_title">Принять файл</string>
+    <string name="file_desc">Ноутбук → телефон. Один файл до 4 КиБ; приём без ACK и шифрования. SHA-256 проверяет целостность, но не отправителя.</string>
     <string name="file_profile_label">Профиль сигнала для файла</string>
     <string name="file_rx_duration_label">Длительность записи</string>
     <string name="file_btn_record">Записать и принять файл</string>
@@ -186,12 +189,12 @@
     <string name="settings_subtitle">Основные параметры</string>
     <string name="settings_section_connection">Связь</string>
     <string name="settings_modem_profile">Профиль сигнала</string>
-    <string name="settings_modem_profile_val">BFSK, 18–19 кГц, 300 бит/с</string>
+    <string name="settings_modem_profile_val">BFSK · 1200/2200 Гц · 300 бод (data-audible)</string>
     <string name="settings_audio_format">Аудио</string>
     <string name="settings_audio_format_val">48 000 Гц, моно, PCM 16 бит</string>
     <string name="settings_section_security">Безопасность</string>
     <string name="settings_crypto">Шифрование</string>
-    <string name="settings_crypto_val">XChaCha20-Poly1305, Ed25519</string>
+    <string name="settings_crypto_val">Пока не подключено: SCNP/AEAD ещё не реализованы</string>
     <string name="settings_radio_policy">Транспорт</string>
     <string name="settings_radio_policy_val">Только звук. Wi-Fi, Bluetooth и сотовая связь не используются.</string>
     <string name="settings_section_about">О приложении</string>
