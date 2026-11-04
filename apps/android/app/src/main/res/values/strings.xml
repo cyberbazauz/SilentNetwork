@@ -169,12 +169,42 @@
 
     <!-- Messenger -->
     <string name="messenger_title">Чат</string>
-    <string name="messenger_subtitle">Сообщения через звук появятся позже</string>
+    <string name="messenger_subtitle">Текст и файлы через звук, без интернета</string>
     <string name="messenger_banner_disabled">Передача сообщений пока недоступна: ядро не подключено.</string>
-    <string name="messenger_empty_hint">Здесь будут сообщения, переданные через звук.</string>
-    <string name="messenger_input_hint">Введите сообщение…</string>
+    <string name="messenger_empty_hint">Сообщения появятся здесь, когда микрофон услышит корректный кадр.</string>
+    <string name="messenger_input_hint">Сообщение до 64 байт UTF-8</string>
     <string name="messenger_btn_send">Отправить</string>
-    <string name="messenger_no_fake_delivery">Доставка не имитируется: сообщение будет отправлено только при подключённом ядре.</string>
+    <string name="messenger_btn_attach">Файл</string>
+    <string name="messenger_btn_stop">Стоп</string>
+    <string name="messenger_no_fake_delivery">Нет ACK: «в эфире» означает только воспроизведение в динамик.</string>
+    <string name="messenger_hint_limits">Текст до 64 байт UTF-8 · файл до 8192 байт · без шифрования</string>
+    <string name="messenger_status_starting">Запуск микрофона…</string>
+    <string name="messenger_status_listening">Слушаю эфир · %1$s</string>
+    <string name="messenger_status_paused">Приём приостановлен: идёт воспроизведение</string>
+    <string name="messenger_status_no_permission">Нет доступа к микрофону: приём недоступен</string>
+    <string name="messenger_status_error">Ошибка микрофона: %1$s</string>
+    <string name="messenger_status_ready">Микрофон слушает · нажмите «Отправить»</string>
+    <string name="messenger_rx_text">Принято по звуку</string>
+    <string name="messenger_tx_playing">Передаётся в эфир…</string>
+    <string name="messenger_tx_done">В эфире · доставка не подтверждена</string>
+    <string name="messenger_tx_error">Ошибка воспроизведения</string>
+    <string name="messenger_tx_stopped">Остановлено пользователем</string>
+    <string name="messenger_file_started">Приём файла %1$s · %2$d байт</string>
+    <string name="messenger_file_progress">Файл %1$s: %2$d/%3$d пакетов</string>
+    <string name="messenger_file_saved">Файл принят: %1$s · %2$d байт</string>
+    <string name="messenger_file_not_saved">Файл собран, но не сохранён</string>
+    <string name="messenger_file_failed">Ошибка файла: %1$s</string>
+    <string name="messenger_frame_failed">Кадр отброшен: %1$s</string>
+    <string name="messenger_gap_overflow">Очередь переполнена: декодер сброшен</string>
+    <string name="messenger_gap_pause">Приём возобновлён после воспроизведения</string>
+    <string name="messenger_playback_progress">В эфире: %1$d%%</string>
+    <string name="messenger_playback_file">Файл: %1$d%% · %2$s</string>
+    <string name="messenger_file_too_large">Файл больше 8192 байт</string>
+    <string name="messenger_file_empty">Файл пуст</string>
+    <string name="messenger_file_read_error">Не удалось прочитать файл</string>
+    <string name="messenger_pick_file">Выбрать файл для передачи</string>
+    <string name="messenger_saved_to">Сохранено: %1$s</string>
+    <string name="messenger_profile_fixed">Профиль: data-audible · 1200/2200 Гц · 300 бод</string>
 
     <!-- Devices -->
     <string name="devices_title">Узлы</string>

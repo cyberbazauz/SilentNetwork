@@ -288,6 +288,18 @@ object FileTransferCodec {
         return encoded
     }
 
+    /**
+     * Save an assembled file into [outputDir] using the validated filename.
+     * The path is resolved canonically, so a name cannot escape the directory.
+     * This writes bytes only; it does not authenticate the sender.
+     */
+    fun writeAssembledFile(outputDir: File, filename: String, content: ByteArray): File {
+        val target = safeOutputFile(outputDir, filename)
+        target.parentFile?.mkdirs()
+        target.writeBytes(content)
+        return target
+    }
+
     /** Parse a Frame v1 payload as a File Transfer v0 packet. */
     fun parsePacket(raw: ByteArray): FilePacket {
         if (raw.size < 2 || raw[0] != FT_MAGIC[0] || raw[1] != FT_MAGIC[1]) {
@@ -421,6 +433,74 @@ object FileTransferCodec {
     }
 
     /**
+     * Encode a file into PCM16 mono frames with inter-frame gaps.
+     *
+     * PCM is built without the WAV header so the chat can play it directly and
+     * avoid holding a second copy of the same payload in memory.
+     */
+    fun encodeFileToPcm(
+        data: ByteArray,
+        filename: String,
+        profile: BfskProfile,
+        transferId: Int,
+        interFrameGapS: Double = DEFAULT_INTER_FRAME_GAP_S,
+        leadSilenceS: Double = DEFAULT_LEAD_SILENCE_S,
+        tailSilenceS: Double = DEFAULT_TAIL_SILENCE_S,
+        rampMs: Double = BfskModulator.DEFAULT_RAMP_MS
+    ): FileMessage {
+        validateDataProfile(profile)
+        val gap = validateSeconds(interFrameGapS, "inter_frame_gap_s", 5.0)
+        val lead = validateSeconds(leadSilenceS, "lead_silence_s", 10.0)
+        val tail = validateSeconds(tailSilenceS, "tail_silence_s", 10.0)
+        val plan = buildTransferPlan(data, filename, transferId)
+
+        val gapSamples = (gap * profile.sampleRate).roundToInt()
+        val leadSamples = (lead * profile.sampleRate).roundToInt()
+        val tailSamples = (tail * profile.sampleRate).roundToInt()
+
+        // Pre-build only the small bit arrays. Float samples are generated one
+        // frame at a time: for 8 KiB the full FloatArray alone is ~61 MiB.
+        val frames = ArrayList<FrameV1.Frame>(plan.packets.size)
+        var frameDurationS = 0.0
+        for (packet in plan.packets) {
+            val frame = FrameV1.build(
+                packet.toBytes(),
+                maxPayloadBytes = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES
+            )
+            frameDurationS = frame.totalBits / profile.symbolRate
+            frames.add(frame)
+        }
+
+        var totalSamples = leadSamples + tailSamples
+        for (frame in frames) totalSamples += frame.bits.size * profile.samplesPerSymbol
+        totalSamples += gapSamples * (frames.size - 1).coerceAtLeast(0)
+        val out = FloatArray(totalSamples)
+        var cursor = leadSamples
+        for ((index, frame) in frames.withIndex()) {
+            val samples = BfskModulator.bitsToSamples(frame.bits, profile, rampMs = rampMs)
+            System.arraycopy(samples, 0, out, cursor, samples.size)
+            cursor += samples.size
+            if (index + 1 < frames.size) cursor += gapSamples
+        }
+
+        val pcmBytes = SignalGenerator.toPcm16LittleEndian(out)
+        return FileMessage(
+            filename = filename,
+            content = data.copyOf(),
+            profile = profile,
+            transferId = transferId,
+            plan = plan,
+            pcmBytes = pcmBytes,
+            frameDurationS = frameDurationS,
+            interFrameGapS = gap,
+            leadSilenceS = lead,
+            tailSilenceS = tail,
+            rampMs = rampMs,
+            sampleRate = profile.sampleRate
+        )
+    }
+
+    /**
      * Encode a file into one WAV with Frame v1 packets and inter-frame gaps.
      * Creating a WAV is not an acoustic transmission.
      */
@@ -434,53 +514,20 @@ object FileTransferCodec {
         tailSilenceS: Double = DEFAULT_TAIL_SILENCE_S,
         rampMs: Double = BfskModulator.DEFAULT_RAMP_MS
     ): Pair<ByteArray, FileMessage> {
-        validateDataProfile(profile)
-        val gap = validateSeconds(interFrameGapS, "inter_frame_gap_s", 5.0)
-        val lead = validateSeconds(leadSilenceS, "lead_silence_s", 10.0)
-        val tail = validateSeconds(tailSilenceS, "tail_silence_s", 10.0)
-        val plan = buildTransferPlan(data, filename, transferId)
-
-        val gapSamples = (gap * profile.sampleRate).roundToInt()
-        val leadSamples = (lead * profile.sampleRate).roundToInt()
-        val tailSamples = (tail * profile.sampleRate).roundToInt()
-
-        val modulated = ArrayList<FloatArray>(plan.packets.size)
-        var frameDurationS = 0.0
-        for (packet in plan.packets) {
-            val frame = FrameV1.build(
-                packet.toBytes(),
-                maxPayloadBytes = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES
-            )
-            frameDurationS = frame.totalBits / profile.symbolRate
-            modulated.add(BfskModulator.bitsToSamples(frame.bits, profile, rampMs = rampMs))
-        }
-
-        var totalSamples = leadSamples + tailSamples
-        for (samples in modulated) totalSamples += samples.size
-        totalSamples += gapSamples * (modulated.size - 1).coerceAtLeast(0)
-        val out = FloatArray(totalSamples)
-        var cursor = leadSamples
-        for ((index, samples) in modulated.withIndex()) {
-            System.arraycopy(samples, 0, out, cursor, samples.size)
-            cursor += samples.size
-            if (index + 1 < modulated.size) cursor += gapSamples
-        }
-
-        val pcmBytes = SignalGenerator.toPcm16LittleEndian(out)
-        val wavBytes = WavFileHandler.encodePcm16Wav(pcmBytes, profile.sampleRate, 1)
-        val message = FileMessage(
+        val message = encodeFileToPcm(
+            data = data,
             filename = filename,
-            content = data.copyOf(),
             profile = profile,
             transferId = transferId,
-            plan = plan,
-            pcmBytes = pcmBytes,
-            frameDurationS = frameDurationS,
-            interFrameGapS = gap,
-            leadSilenceS = lead,
-            tailSilenceS = tail,
-            rampMs = rampMs,
-            sampleRate = profile.sampleRate
+            interFrameGapS = interFrameGapS,
+            leadSilenceS = leadSilenceS,
+            tailSilenceS = tailSilenceS,
+            rampMs = rampMs
+        )
+        val wavBytes = WavFileHandler.encodePcm16Wav(
+            message.pcmBytes,
+            message.sampleRate,
+            1
         )
         return wavBytes to message
     }
