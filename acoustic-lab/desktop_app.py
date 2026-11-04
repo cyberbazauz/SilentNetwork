@@ -20,8 +20,10 @@ import argparse
 import math
 import os
 import queue
+import secrets
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -39,14 +41,18 @@ else:
 
 try:
     from snlab import audio
+    from snlab import chat as chat_core
     from snlab import datalink_desktop as data_desktop
     from snlab import desktop, playback
+    from snlab import file_transfer
     from snlab import file_transfer_desktop as file_desktop
 except ImportError as _dependency_exc:  # pragma: no cover - зависит от окружения
     audio = None  # type: ignore[assignment]
+    chat_core = None  # type: ignore[assignment]
     data_desktop = None  # type: ignore[assignment]
     desktop = None  # type: ignore[assignment]
     playback = None  # type: ignore[assignment]
+    file_transfer = None  # type: ignore[assignment]
     file_desktop = None  # type: ignore[assignment]
     _DEPENDENCY_ERROR: Exception | None = _dependency_exc
 else:
@@ -323,6 +329,21 @@ class DesktopApp:
         self._file_play_queue: queue.Queue[tuple[str, Any]] | None = None
         self._file_record_queue: queue.Queue[tuple[str, Any]] | None = None
 
+        self.chat_input_devices: list[Any] = []
+        self.chat_selected_input: Any | None = None
+        self.chat_profile_var = tk.StringVar(value="data-audible")
+        self.chat_text_var = tk.StringVar(value="")
+        self.chat_session: Any | None = None
+        self.chat_capture: Any | None = None
+        self.chat_playing = False
+        self.chat_encoding = False
+        self._chat_play_queue: queue.Queue[tuple[str, Any]] | None = None
+        self._chat_encode_queue: queue.Queue[tuple[str, Any]] | None = None
+        self._chat_event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self._chat_tab: Any | None = None
+        self._chat_user_stopped = False
+        self._chat_status_cache = "Прослушивание не запущено."
+
         self.ui_scale = configure_dpi_scaling(root)
         _configure_style(root)
         self._build_ui()
@@ -332,6 +353,8 @@ class DesktopApp:
         self.refresh_file_inputs()
         self._update_data_play_state()
         self._update_file_play_state()
+        self.refresh_chat_inputs()
+        self._update_chat_controls()
         if not self._device_panel_open:
             self._toggle_device_panel()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -437,9 +460,7 @@ class DesktopApp:
 
         self.tabview = ttk.Notebook(shell)
         self.tabview.grid(row=0, column=0, sticky="nsew")
-        self.tabview.bind(
-            "<<NotebookTabChanged>>", lambda _event: self._request_content_sync()
-        )
+        self.tabview.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         pad = self._px(14)
         file_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
@@ -459,6 +480,11 @@ class DesktopApp:
         self._build_data_send_section(data_body)
         self._build_data_receive_section(data_body)
         self.tabview.add(data_tab, text="  Сообщение  ")
+
+        chat_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
+        self._build_chat_section(chat_tab)
+        self.tabview.add(chat_tab, text="  Чат  ")
+        self._chat_tab = chat_tab
 
         tone_tab = ttk.Frame(self.tabview, padding=(pad, pad, pad, pad))
         tone_body = self._scrollable(tone_tab)
@@ -1557,6 +1583,7 @@ class DesktopApp:
             and not self.data_playing
             and not self.file_playing
             and not self._playing
+            and not self.chat_playing
         )
         self.data_play_button.configure(state="normal" if allowed else "disabled")
         self.data_stop_button.configure(
@@ -2005,6 +2032,7 @@ class DesktopApp:
             and not self.file_playing
             and not self.data_playing
             and not self._playing
+            and not self.chat_playing
         )
         self.file_play_button.configure(state="normal" if allowed else "disabled")
         self.file_stop_button.configure(
@@ -2423,6 +2451,686 @@ class DesktopApp:
         holder._toggle = _toggle  # type: ignore[attr-defined]
         return holder, content
 
+    # ------------------------------------------------------------------ чат
+
+    def _on_tab_changed(self, _event: Any | None = None) -> None:
+        self._request_content_sync()
+        try:
+            selected = self.tabview.select()
+        except Exception:  # noqa: BLE001 - окно может закрываться
+            return
+        if self._chat_tab is not None and selected == str(self._chat_tab):
+            if not self._chat_user_stopped:
+                self._maybe_auto_start_chat()
+        else:
+            # Повторный вход на вкладку снова разрешает авто-прослушивание.
+            self._chat_user_stopped = False
+
+    def _maybe_auto_start_chat(self) -> None:
+        if self.chat_capture is not None:
+            return
+        if self.chat_selected_input is None:
+            self._chat_set_status(
+                "Микрофон не выбран. Обновите список и выберите устройство."
+            )
+            return
+        self.start_chat_listening()
+
+    def _build_chat_section(self, parent: Any) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        settings, body = self._card(
+            parent,
+            "Непрерывный чат",
+            "Ноутбук и телефон слушают звук; сообщение звучит сразу после отправки",
+        )
+        settings.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        body.columnconfigure(1, weight=1)
+        body.columnconfigure(3, weight=1)
+
+        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 8)
+        )
+        self.chat_profile_box = ttk.Combobox(
+            body,
+            textvariable=self.chat_profile_var,
+            values=(
+                sorted(data_desktop.DATA_PROFILE_NAMES)
+                if data_desktop is not None
+                else ["data-audible", "data-robust"]
+            ),
+            state="readonly",
+            width=14,
+        )
+        self.chat_profile_box.grid(row=0, column=1, sticky="ew", padx=(0, 14))
+
+        ttk.Label(body, text="Микрофон", style="Field.TLabel").grid(
+            row=0, column=2, sticky="w", padx=(0, 8)
+        )
+        self.chat_input_box = ttk.Combobox(body, state="readonly")
+        self.chat_input_box.grid(row=0, column=3, sticky="ew")
+        self.chat_input_box.bind(
+            "<<ComboboxSelected>>", self._on_chat_input_selected
+        )
+
+        buttons = ttk.Frame(body, style="Card.TFrame")
+        buttons.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(10, 6))
+        buttons.columnconfigure(0, weight=1)
+        buttons.columnconfigure(1, weight=1)
+        ttk.Button(
+            buttons,
+            text="Обновить микрофоны",
+            style="Secondary.TButton",
+            command=self.refresh_chat_inputs,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.chat_listen_button = ttk.Button(
+            buttons,
+            text="Слушать микрофон",
+            style="Accent.TButton",
+            command=self.toggle_chat_listening,
+        )
+        self.chat_listen_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.chat_status_label = ttk.Label(
+            body,
+            text=self._chat_status_cache,
+            style="CardMuted.TLabel",
+            wraplength=self._px(760),
+            justify="left",
+        )
+        self.chat_status_label.grid(row=2, column=0, columnspan=4, sticky="ew")
+
+        log_card, log_body = self._card(
+            parent,
+            "Лог чата",
+            "Приём подтверждается только CRC-16 кадра; ACK, шифрования и доставки нет",
+        )
+        log_card.grid(row=1, column=0, sticky="nsew")
+        log_body.columnconfigure(0, weight=1)
+        log_body.rowconfigure(0, weight=1)
+
+        text_wrap = tk.Frame(log_body, background=COLOR_CARD)
+        text_wrap.grid(row=0, column=0, sticky="nsew")
+        text_wrap.columnconfigure(0, weight=1)
+        text_wrap.rowconfigure(0, weight=1)
+        self.chat_log = tk.Text(
+            text_wrap,
+            height=16,
+            wrap="word",
+            state="disabled",
+            background="#FFFFFF",
+            foreground=COLOR_TEXT,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=8,
+        )
+        self.chat_log.grid(row=0, column=0, sticky="nsew")
+        chat_scroll = ttk.Scrollbar(
+            text_wrap, orient="vertical", command=self.chat_log.yview
+        )
+        chat_scroll.grid(row=0, column=1, sticky="ns")
+        self.chat_log.configure(yscrollcommand=chat_scroll.set)
+        self.chat_log.tag_configure("out", foreground=COLOR_ACCENT)
+        self.chat_log.tag_configure("in", foreground=COLOR_TEXT)
+        self.chat_log.tag_configure("system", foreground=COLOR_MUTED)
+        self.chat_log.tag_configure("error", foreground=COLOR_ERROR)
+
+        composer = tk.Frame(log_body, background=COLOR_CARD)
+        composer.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        composer.columnconfigure(0, weight=1)
+        entry = ttk.Entry(composer, textvariable=self.chat_text_var)
+        entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        entry.bind("<Return>", lambda _event: self.send_chat_text())
+        self.chat_send_button = ttk.Button(
+            composer,
+            text="Отправить",
+            style="Accent.TButton",
+            command=self.send_chat_text,
+        )
+        self.chat_send_button.grid(row=0, column=1, padx=(0, 6))
+        self.chat_file_button = ttk.Button(
+            composer,
+            text="Отправить файл…",
+            style="Secondary.TButton",
+            command=self.choose_chat_file,
+        )
+        self.chat_file_button.grid(row=0, column=2)
+        self.chat_stop_button = ttk.Button(
+            composer,
+            text="Стоп звука",
+            style="Danger.TButton",
+            command=self.request_chat_stop,
+            state="disabled",
+        )
+        self.chat_stop_button.grid(row=0, column=3, padx=(6, 0))
+
+        ttk.Label(
+            log_body,
+            text=(
+                "Полудуплекс: во время собственного звука приём приостанавливается. "
+                "Файл до 8192 байт звучит несколько минут; подтверждения доставки нет."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=self._px(760),
+            justify="left",
+        ).grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
+    def refresh_chat_inputs(self) -> None:
+        if chat_core is None:
+            self._chat_set_status(
+                "Модуль чата недоступен: проверьте зависимости приложения."
+            )
+            return
+        try:
+            devices = self.input_device_lister()
+        except Exception as exc:  # noqa: BLE001 - отказ аудиобэкенда показываем
+            self._chat_set_status(
+                f"Не удалось получить микрофоны: {type(exc).__name__}: {exc}"
+            )
+            return
+        self.chat_input_devices = [device for device in devices if device.is_input]
+        labels = [
+            f"[{device.index}] {device.name}" for device in self.chat_input_devices
+        ]
+        self.chat_input_box.configure(values=labels)
+        if not labels:
+            self.chat_selected_input = None
+            self.chat_input_box.set("")
+            self._chat_set_status(
+                "Входных устройств не найдено. Проверьте микрофон Windows."
+            )
+            self._update_chat_controls()
+            return
+        preferred = audio.select_preferred_device(self.chat_input_devices, "input")
+        if preferred is None:
+            self.chat_selected_input = None
+            self.chat_input_box.set("")
+            self._chat_set_status(
+                f"Найдено микрофонов: {len(labels)}. Автовыбор отключён: "
+                "доступны только Bluetooth или виртуальные устройства."
+            )
+            self._update_chat_controls()
+            return
+        self.chat_selected_input = preferred
+        if self.chat_capture is None:
+            self.chat_input_box.current(self.chat_input_devices.index(preferred))
+        warning = audio.device_warning(preferred)
+        if warning:
+            self._chat_set_status(
+                f"[{preferred.index}] {preferred.name}. Внимание: {warning}"
+            )
+        else:
+            self._chat_set_status(
+                f"Микрофон: [{preferred.index}] {preferred.name}."
+            )
+        self._update_chat_controls()
+
+    def _on_chat_input_selected(self, _event: Any | None = None) -> None:
+        if self.chat_capture is not None:
+            return
+        position = self.chat_input_box.current()
+        if 0 <= position < len(self.chat_input_devices):
+            device = self.chat_input_devices[position]
+            self.chat_selected_input = device
+            warning = audio.device_warning(device)
+            if warning:
+                self._chat_set_status(
+                    f"[{device.index}] {device.name}. Внимание: {warning}"
+                )
+            else:
+                self._chat_set_status(
+                    f"[{device.index}] {device.name} выбран для чата."
+                )
+            self._update_chat_controls()
+
+    def toggle_chat_listening(self) -> None:
+        if self.chat_capture is not None:
+            self._chat_user_stopped = True
+            self.stop_chat_listening(
+                reason="Прослушивание остановлено пользователем."
+            )
+            return
+        self._chat_user_stopped = False
+        self.start_chat_listening()
+
+    def start_chat_listening(self) -> None:
+        if chat_core is None:
+            self._chat_set_status("Модуль чата недоступен.")
+            return
+        if self.chat_capture is not None:
+            return
+        if self.chat_selected_input is None:
+            self._chat_set_status("Сначала выберите микрофон.")
+            return
+        try:
+            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_set_status(f"Профиль не выбран: {exc}")
+            return
+
+        output_dir = self.results_dir / "chat-received"
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            session = chat_core.ChatSession(profile, output_dir=output_dir)
+            capture = audio.ContinuousCapture(
+                device=self.chat_selected_input,
+                sample_rate=profile.sample_rate,
+                on_samples=self._chat_on_samples,
+                on_error=self._chat_on_error,
+                on_gap=self._chat_on_gap,
+            )
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_set_status(
+                f"Прослушивание не запущено: {type(exc).__name__}: {exc}"
+            )
+            return
+
+        self.chat_session = session
+        try:
+            capture.start()
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self.chat_session = None
+            self._chat_set_status(
+                f"Микрофон не открылся: {type(exc).__name__}: {exc}"
+            )
+            return
+        self.chat_capture = capture
+        device = self.chat_selected_input
+        self._chat_log(
+            f"[{self._chat_time()}] Слушаю [{device.index}] {device.name} · "
+            f"{profile.name}",
+            "system",
+        )
+        self._chat_set_status(
+            "Слушаю микрофон. Отправьте сообщение или файл — звук начнётся сразу."
+        )
+        self._update_chat_controls()
+        self.root.after(100, self._poll_chat_events)
+
+    def stop_chat_listening(self, reason: str | None = None) -> None:
+        capture = self.chat_capture
+        session = self.chat_session
+        self.chat_capture = None
+        self.chat_session = None
+        if capture is not None:
+            try:
+                capture.stop()
+            except Exception:  # noqa: BLE001 - поток мог уже упасть
+                pass
+        pending = []
+        if session is not None:
+            try:
+                pending = session.flush()
+            except Exception:  # noqa: BLE001 - остаток буфера не критичен
+                pending = []
+        for event in pending:
+            self._handle_chat_event(event)
+        if reason:
+            self._chat_log(f"[{self._chat_time()}] {reason}", "system")
+            self._chat_set_status(reason)
+        else:
+            self._chat_set_status("Прослушивание остановлено.")
+        self._update_chat_controls()
+
+    def _chat_on_samples(self, samples: Any) -> None:
+        """Поток-потребитель микрофона: только декодирование и очередь UI."""
+        session = self.chat_session
+        if session is None:
+            return
+        try:
+            events = session.feed(samples)
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_event_queue.put(("error", exc))
+            return
+        for event in events:
+            self._chat_event_queue.put(("event", event))
+
+    def _chat_on_gap(self, reason: str) -> None:
+        session = self.chat_session
+        if session is not None:
+            session.reset_decoder()
+        self._chat_event_queue.put(("gap", reason))
+
+    def _chat_on_error(self, exc: Exception) -> None:
+        self._chat_event_queue.put(("error", exc))
+
+    def _poll_chat_events(self) -> None:
+        self._consume_chat_queue()
+        if self.chat_capture is not None or not self._chat_event_queue.empty():
+            self.root.after(100, self._poll_chat_events)
+
+    def _consume_chat_queue(self) -> None:
+        while True:
+            try:
+                kind, payload = self._chat_event_queue.get_nowait()
+            except queue.Empty:
+                return
+            if kind == "event":
+                self._handle_chat_event(payload)
+            elif kind == "gap":
+                self._chat_log(
+                    f"[{self._chat_time()}] Разрыв потока ({payload}): "
+                    "буфер декодера сброшен, приём пересинхронизируется.",
+                    "system",
+                )
+                self._chat_set_status(
+                    "Разрыв микрофонного потока: приём пересинхронизируется."
+                )
+            else:
+                self._chat_log(
+                    f"[{self._chat_time()}] Ошибка приёма: "
+                    f"{type(payload).__name__}: {payload}",
+                    "error",
+                )
+                if self.chat_capture is not None:
+                    self.stop_chat_listening(
+                        reason=(
+                            "Прослушивание остановлено: "
+                            f"{type(payload).__name__}: {payload}"
+                        )
+                    )
+
+    def _handle_chat_event(self, event: Any) -> None:
+        stamp = self._chat_time()
+        if isinstance(event, chat_core.TextReceived):
+            self._chat_log(f"[{stamp}] Принято: {event.text}", "in")
+            self._chat_set_status(
+                f"Принято {event.payload_bytes} байт UTF-8; CRC-16 сошёлся. "
+                "Доставка не подтверждается."
+            )
+        elif isinstance(event, chat_core.FileStarted):
+            self._chat_log(
+                f"[{stamp}] Приём файла {event.filename}: "
+                f"{event.file_size} байт, {event.total_chunks} чанков.",
+                "in",
+            )
+            self._chat_set_status(
+                f"Принимаю файл {event.filename}: 0/{event.total_chunks} чанков."
+            )
+        elif isinstance(event, chat_core.FileProgress):
+            label = event.filename or f"id {event.transfer_id}"
+            self._chat_set_status(
+                f"Файл {label}: {event.received_chunks}/{event.total_chunks} "
+                f"чанков, повторов {event.duplicates}."
+            )
+        elif isinstance(event, chat_core.FileCompleted):
+            tail = f" Сохранён: {event.saved_to}" if event.saved_to else ""
+            self._chat_log(
+                f"[{stamp}] Файл принят: {event.filename}, "
+                f"{event.file_size} байт, SHA-256 {event.sha256[:16]}…{tail}",
+                "in",
+            )
+            self._chat_set_status(
+                f"Файл {event.filename} собран; SHA-256 проверен. "
+                "Подлинность отправителя не проверялась."
+            )
+        elif isinstance(event, chat_core.FileFailed):
+            self._chat_log(
+                f"[{stamp}] Ошибка файла {event.error_type}: {event.message}",
+                "error",
+            )
+            self._chat_set_status(f"Файл не принят: {event.error_type}.")
+        elif isinstance(event, chat_core.FrameFailed):
+            self._chat_log(
+                f"[{stamp}] Кадр отброшен {event.error_type}: {event.message}",
+                "error",
+            )
+
+    def _chat_time(self) -> str:
+        return time.strftime("%H:%M:%S")
+
+    def _chat_set_status(self, text: str) -> None:
+        self._chat_status_cache = str(text)
+        label = getattr(self, "chat_status_label", None)
+        if label is not None:
+            label.configure(text=self._chat_status_cache)
+
+    def _chat_log(self, text: str, tag: str = "system") -> None:
+        widget = getattr(self, "chat_log", None)
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.insert("end", text + "\n", tag)
+        widget.configure(state="disabled")
+        widget.see("end")
+
+    def _chat_can_send(self) -> bool:
+        if self.chat_playing or self.chat_encoding:
+            self._chat_set_status(
+                "Идёт звук; дождитесь окончания — чат полудуплексный."
+            )
+            return False
+        if self.selected_device is None:
+            self._chat_set_status(
+                "Динамик не выбран. Откройте вкладку «Устройства»."
+            )
+            return False
+        if self.engine is None:
+            self._chat_set_status("Аудиодвижок недоступен.")
+            return False
+        return True
+
+    def send_chat_text(self) -> None:
+        if chat_core is None:
+            self._chat_set_status("Модуль чата недоступен.")
+            return
+        if not self._chat_can_send():
+            return
+        text = self.chat_text_var.get()
+        try:
+            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
+            message = chat_core.encode_text_message(text, profile)
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в статусе
+            self._chat_set_status(f"Сообщение не отправлено: {exc}")
+            return
+        self.chat_text_var.set("")
+        self._chat_log(f"[{self._chat_time()}] Вы: {text}", "out")
+        self._start_chat_playback(message)
+
+    def choose_chat_file(self) -> None:
+        if chat_core is None or file_transfer is None:
+            self._chat_set_status("Модуль передачи файлов недоступен.")
+            return
+        if not self._chat_can_send():
+            return
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Файл для передачи звуком",
+        )
+        if not path:
+            return
+        source = Path(path)
+        try:
+            data = source.read_bytes()
+        except OSError as exc:
+            self._chat_set_status(f"Файл не прочитан: {exc}")
+            return
+        if len(data) > file_transfer.MAX_FILE_BYTES:
+            self._chat_set_status(
+                f"Файл {len(data)} байт больше лимита "
+                f"{file_transfer.MAX_FILE_BYTES} байт."
+            )
+            return
+        try:
+            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
+        except Exception as exc:  # noqa: BLE001
+            self._chat_set_status(f"Профиль не выбран: {exc}")
+            return
+        transfer_id = secrets.randbelow(255) + 1
+        self.chat_encoding = True
+        self._chat_encode_queue = queue.Queue()
+        self._chat_set_status(
+            f"Готовлю звук файла {source.name} ({len(data)} байт)…"
+        )
+        self._update_chat_controls()
+
+        def worker() -> None:
+            try:
+                message = chat_core.encode_file_message(
+                    data,
+                    source.name,
+                    profile,
+                    transfer_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                assert self._chat_encode_queue is not None
+                self._chat_encode_queue.put(("error", exc))
+            else:
+                assert self._chat_encode_queue is not None
+                self._chat_encode_queue.put(("encoded", message))
+
+        threading.Thread(
+            target=worker, daemon=True, name="AcousticChat-Encode"
+        ).start()
+        self.root.after(100, self._poll_chat_encode)
+
+    def _poll_chat_encode(self) -> None:
+        if self._chat_encode_queue is None:
+            return
+        try:
+            kind, payload = self._chat_encode_queue.get_nowait()
+        except queue.Empty:
+            if self.chat_encoding:
+                self.root.after(100, self._poll_chat_encode)
+            return
+        self.chat_encoding = False
+        if kind == "encoded":
+            message = payload
+            self._chat_log(
+                f"[{self._chat_time()}] Вы: файл {message.filename} "
+                f"({message.file_size} байт, {message.packet_count} пакетов) — "
+                f"звук {message.duration_s:.1f} с",
+                "out",
+            )
+            self._update_chat_controls()
+            self._start_chat_playback(message)
+            return
+        text = f"Файл не отправлен: {type(payload).__name__}: {payload}"
+        self._chat_log(f"[{self._chat_time()}] {text}", "error")
+        self._chat_set_status(text)
+        self._update_chat_controls()
+
+    def _start_chat_playback(self, message: Any) -> None:
+        device = self.selected_device
+        if device is None:
+            self._chat_set_status("Динамик не выбран.")
+            return
+        self.chat_playing = True
+        self._chat_play_queue = queue.Queue()
+        if self.chat_capture is not None:
+            self.chat_capture.pause()
+        self._chat_set_status(
+            f"Звучит {message.duration_s:.1f} с · {message.profile_name}. "
+            "Приём приостановлен."
+        )
+        self._update_chat_controls()
+
+        def worker() -> None:
+            try:
+                outcome = self.engine.play(
+                    message.samples,
+                    message.sample_rate,
+                    device,
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                assert self._chat_play_queue is not None
+                self._chat_play_queue.put(("error", exc))
+            else:
+                assert self._chat_play_queue is not None
+                self._chat_play_queue.put(("done", outcome))
+
+        threading.Thread(
+            target=worker, daemon=True, name="AcousticChat-Playback"
+        ).start()
+        self.root.after(100, self._poll_chat_playback)
+
+    def _poll_chat_playback(self) -> None:
+        if self._chat_play_queue is None:
+            return
+        try:
+            kind, payload = self._chat_play_queue.get_nowait()
+        except queue.Empty:
+            if self.chat_playing:
+                self.root.after(100, self._poll_chat_playback)
+            return
+        self.chat_playing = False
+        if self.chat_capture is not None:
+            self.chat_capture.resume()
+        if kind == "done":
+            outcome = payload
+            if outcome.performed:
+                status = (
+                    f"Звук прозвучал полностью ({outcome.frames_written} "
+                    f"отсчётов за {outcome.elapsed_s:.2f} с). "
+                    "Приём этим не подтверждён."
+                )
+                tag = "system"
+            elif outcome.status == "stopped":
+                status = (
+                    "Звук остановлен: "
+                    f"{outcome.frames_written} из {outcome.total_frames} отсчётов."
+                )
+                tag = "error"
+            else:
+                status = (
+                    "PLAY завершился ошибкой: "
+                    f"{outcome.error or 'причина не сообщена драйвером'}"
+                )
+                tag = "error"
+        else:
+            status = f"Звук не воспроизведён: {type(payload).__name__}: {payload}"
+            tag = "error"
+        self._chat_log(f"[{self._chat_time()}] {status}", tag)
+        self._chat_set_status(status)
+        self._update_chat_controls()
+
+    def request_chat_stop(self) -> None:
+        if self.engine is None or not self.chat_playing:
+            return
+        self._chat_set_status("Останавливаю звук…")
+        self.engine.stop()
+
+    def _update_chat_controls(self) -> None:
+        listen = getattr(self, "chat_listen_button", None)
+        if listen is not None:
+            if self.chat_capture is not None:
+                listen.configure(
+                    text="Остановить прослушивание", style="Danger.TButton"
+                )
+            else:
+                listen.configure(text="Слушать микрофон", style="Accent.TButton")
+        busy = self.chat_playing or self.chat_encoding
+        send = getattr(self, "chat_send_button", None)
+        if send is not None:
+            send.configure(state="disabled" if busy else "normal")
+        choose = getattr(self, "chat_file_button", None)
+        if choose is not None:
+            choose.configure(state="disabled" if busy else "normal")
+        stop = getattr(self, "chat_stop_button", None)
+        if stop is not None:
+            stop.configure(
+                state=(
+                    "normal"
+                    if self.chat_playing and self.engine is not None
+                    else "disabled"
+                )
+            )
+        state = "disabled" if self.chat_capture is not None else "readonly"
+        profile_box = getattr(self, "chat_profile_box", None)
+        if profile_box is not None:
+            profile_box.configure(state=state)
+        input_box = getattr(self, "chat_input_box", None)
+        if input_box is not None:
+            input_box.configure(state=state)
+        self._update_playback_state()
+        self._update_data_play_state()
+        self._update_file_play_state()
+
     # ---------------------------------------------------------------- footer
 
     def _build_footer(self) -> None:
@@ -2630,6 +3338,9 @@ class DesktopApp:
             tone is not None
             and device is not None
             and not self._playing
+            and not self.data_playing
+            and not self.file_playing
+            and not self.chat_playing
         )
         self.play_button.configure(state="normal" if allowed else "disabled")
         self.stop_button.configure(
@@ -3053,7 +3764,14 @@ class DesktopApp:
             pass
 
     def _on_close(self) -> None:
-        if (self._playing or self.file_playing) and self.engine is not None:
+        if self.chat_capture is not None:
+            try:
+                self.stop_chat_listening()
+            except Exception:  # noqa: BLE001 - окно всё равно закрывается
+                pass
+        if (
+            self._playing or self.file_playing or self.data_playing or self.chat_playing
+        ) and self.engine is not None:
             try:
                 self.engine.stop()
             except Exception:  # noqa: BLE001

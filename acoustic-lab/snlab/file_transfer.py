@@ -1087,6 +1087,21 @@ def decode_report_ok(report: dict[str, Any]) -> bool:
     return report.get("result") == "ok" and report.get("file") is not None
 
 
+def write_assembled_file(
+    out_dir: str | Path, filename: str, content: bytes
+) -> Path:
+    """Сохранить собранный файл, не выходя за пределы ``out_dir``.
+
+    Имя проверяется тем же ``validate_filename``, что и при передаче, а
+    каталог назначения создаётся при необходимости. Функция пишет только
+    байты и не подтверждает подлинность отправителя.
+    """
+    target = _safe_output_path(out_dir, filename)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(bytes(content))
+    return target
+
+
 def _safe_output_path(out_dir: str | Path, filename: str) -> Path:
     """Собрать путь, не позволяя выйти за пределы каталога назначения."""
     name = validate_filename(filename).decode("utf-8")

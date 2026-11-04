@@ -18,10 +18,12 @@ sounddevice импортируется лениво, чтобы тесты и а
 from __future__ import annotations
 
 import math
+import queue
 import re
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 from scipy.signal import find_peaks, welch
@@ -517,6 +519,254 @@ def record_ambient(
         overflows=overflows,
         wall_time_s=time.monotonic() - started,
     )
+
+
+class ContinuousCapture:
+    """Постоянный микрофонный поток для чата.
+
+    В отличие от :func:`record_ambient`, здесь нет фиксированной длительности
+    и WAV: поток читается блоками в отдельном потоке, а потребитель получает
+    уже приведённые к моно блоки через ``on_samples`` из другого потока.
+
+    Микрофон остаётся открытым и во время :meth:`pause`. Отсчёты, принятые в
+    паузе, отбрасываются, а после :meth:`resume` потребитель получает
+    ``on_gap("pause")``: кадр, пересекающий границу паузы, неполный, и
+    декодер обязан пересинхронизироваться.
+
+    Переполнение очереди трактуется так же: старые блоки уже потеряны, поэтому
+    очередь очищается, а потребитель получает ``on_gap("overflow")``. Молча
+    склеивать разрыв нельзя — это испортило бы состояние декодера.
+
+    Args:
+        device: входное устройство или ``None`` для устройства по умолчанию.
+        sample_rate: частота дискретизации, Гц.
+        block_size: размер блока в отсчётах.
+        queue_capacity: сколько блоков ждёт потребителя.
+        sd_module: подмена sounddevice для тестов.
+        on_samples: вызывается из потока-потребителя с блоком float32.
+        on_error: вызывается при сбое потока или потребителя.
+        on_gap: вызывается перед первым блоком после разрыва.
+    """
+
+    def __init__(
+        self,
+        *,
+        on_samples: Callable[[np.ndarray], None],
+        on_error: Callable[[Exception], None] | None = None,
+        on_gap: Callable[[str], None] | None = None,
+        device: DeviceInfo | None = None,
+        sample_rate: int = 48_000,
+        block_size: int = 4_096,
+        queue_capacity: int = 16,
+        sd_module: Any | None = None,
+    ) -> None:
+        if not callable(on_samples):
+            raise ValueError("on_samples должен быть вызываемым")
+        if not isinstance(sample_rate, int) or isinstance(sample_rate, bool):
+            raise ValueError("sample_rate должен быть целым числом")
+        if not 8_000 <= sample_rate <= 192_000:
+            raise ValueError("sample_rate должен быть в диапазоне 8000..192000")
+        if not isinstance(block_size, int) or isinstance(block_size, bool) or block_size <= 0:
+            raise ValueError("block_size должен быть положительным целым")
+        if (
+            not isinstance(queue_capacity, int)
+            or isinstance(queue_capacity, bool)
+            or queue_capacity <= 0
+        ):
+            raise ValueError("queue_capacity должен быть положительным целым")
+
+        self.on_samples = on_samples
+        self.on_error = on_error
+        self.on_gap = on_gap
+        self.device = device
+        self.sample_rate = sample_rate
+        self.block_size = block_size
+        self.queue_capacity = queue_capacity
+        self._sd_module = sd_module
+
+        self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=queue_capacity)
+        self._running = threading.Event()
+        self._paused = threading.Event()
+        self._gap_reason: str | None = None
+        self._dropped_blocks = 0
+        self._overflows = 0
+        self._error_lock = threading.Lock()
+        self._error_reported = False
+        self._stream: Any | None = None
+        self._read_thread: threading.Thread | None = None
+        self._consume_thread: threading.Thread | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._running.is_set()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
+
+    @property
+    def dropped_blocks(self) -> int:
+        """Блоки, отброшенные в паузе или из-за переполнения очереди."""
+        return self._dropped_blocks
+
+    @property
+    def overflows(self) -> int:
+        """Сколько раз драйвер сообщил о переполнении своего буфера."""
+        return self._overflows
+
+    def start(self) -> None:
+        """Открыть микрофон и запустить чтение.
+
+        Raises:
+            CaptureError: поток не открылся или уже запущен.
+        """
+        if self._running.is_set():
+            raise CaptureError("захват уже запущен")
+        sounddevice = load_sounddevice(self._sd_module)
+        device_index = self.device.index if self.device is not None else None
+        device_name = self.device.name if self.device is not None else "default"
+        try:
+            stream = sounddevice.InputStream(
+                device=device_index,
+                channels=1,
+                samplerate=self.sample_rate,
+                dtype=CAPTURE_DTYPE,
+                blocksize=self.block_size,
+            )
+        except Exception as exc:  # noqa: BLE001 - PortAudio сообщает разные типы
+            raise CaptureError(
+                f"не удалось открыть микрофон [{device_index}] {device_name!r}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        self._stream = stream
+        self._queue = queue.Queue(maxsize=self.queue_capacity)
+        self._gap_reason = None
+        self._dropped_blocks = 0
+        self._overflows = 0
+        self._error_reported = False
+        self._paused.clear()
+        self._running.set()
+        try:
+            start = getattr(stream, "start", None)
+            if callable(start):
+                start()
+            self._consume_thread = threading.Thread(
+                target=self._consume_loop,
+                name="AcousticChat-Consumer",
+                daemon=True,
+            )
+            self._read_thread = threading.Thread(
+                target=self._read_loop,
+                name="AcousticChat-Input",
+                daemon=True,
+            )
+            self._consume_thread.start()
+            self._read_thread.start()
+        except Exception as exc:  # noqa: BLE001
+            self.stop()
+            raise CaptureError(
+                f"не удалось запустить захват: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    def pause(self) -> None:
+        """Перестать отдавать блоки потребителю, не закрывая микрофон."""
+        if not self._running.is_set():
+            return
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Возобновить выдачу; потребитель получит ``on_gap("pause")``."""
+        if not self._running.is_set():
+            return
+        self._paused.clear()
+        self._gap_reason = "pause"
+
+    def stop(self) -> None:
+        """Остановить оба потока и закрыть устройство."""
+        if not self._running.is_set():
+            return
+        self._running.clear()
+        self._paused.clear()
+        stream = self._stream
+        self._stream = None
+        if stream is not None:
+            for method_name in ("abort", "stop", "close"):
+                method = getattr(stream, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    method()
+                except Exception:  # noqa: BLE001 - поток мог уже закрыться
+                    pass
+        for thread in (self._read_thread, self._consume_thread):
+            if thread is None:
+                continue
+            thread.join(timeout=1.0)
+        self._read_thread = None
+        self._consume_thread = None
+        self._drain_queue()
+
+    def _read_loop(self) -> None:
+        stream = self._stream
+        if stream is None:
+            return
+        try:
+            while self._running.is_set():
+                block, overflowed = stream.read(self.block_size)
+                if not self._running.is_set():
+                    break
+                if overflowed:
+                    self._overflows += 1
+                data = _as_mono(block)
+                if data.size == 0:
+                    raise CaptureError("драйвер вернул пустой блок данных")
+                if self._paused.is_set():
+                    self._dropped_blocks += 1
+                    continue
+                try:
+                    self._queue.put_nowait(data)
+                except queue.Full:
+                    self._dropped_blocks += 1
+                    self._gap_reason = "overflow"
+                    # Блоки в очереди старше потерянного. Если их оставить,
+                    # разрыв скроется: они будут декодированы, а следом пойдёт
+                    # звук без пересинхронизации.
+                    self._drain_queue()
+        except Exception as exc:  # noqa: BLE001 - PortAudio сообщает разные типы
+            if self._running.is_set():
+                self._report_error(exc)
+
+    def _consume_loop(self) -> None:
+        try:
+            while self._running.is_set() or not self._queue.empty():
+                reason = self._gap_reason
+                if reason is not None:
+                    self._gap_reason = None
+                    if self.on_gap is not None:
+                        self.on_gap(reason)
+                try:
+                    block = self._queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                self.on_samples(block)
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем вызывающему
+            self._report_error(exc)
+
+    def _drain_queue(self) -> None:
+        while True:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                return
+
+    def _report_error(self, exc: Exception) -> None:
+        with self._error_lock:
+            if self._error_reported:
+                return
+            self._error_reported = True
+        if self.on_error is not None:
+            self.on_error(exc)
 
 
 def compute_psd(
