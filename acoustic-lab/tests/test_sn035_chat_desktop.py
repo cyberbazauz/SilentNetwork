@@ -143,7 +143,8 @@ def test_gui_chat_section_is_wired(tmp_path: Path) -> None:
             for tab in app.tabview.tabs()
         ]
         assert any("Чат" in label for label in labels)
-        assert app.chat_profile_var.get() == "data-audible"
+        assert app.chat_mode_var.get() == "Нормальный"
+        assert app.chat_mode_box.cget("values")[0] == "Нормальный"
         assert app.chat_selected_input is not None
         assert app.chat_selected_input.index == 7
         assert app.chat_input_box.get().startswith("[7]")

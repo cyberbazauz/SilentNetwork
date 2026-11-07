@@ -126,27 +126,27 @@ class StreamFrameDecoder(
                     metric,
                     profile,
                     minPreambleMatches = minPreambleMatches,
-                    from = scan
+                    from = scan,
+                    limit = 32
                 )
             } catch (_: BfskDemodulator.SignalNotFound) {
                 break
             }
 
-            val bestMatches = candidates.maxOf { it.preambleMatches }
-            val anchor = candidates
-                .filter { it.preambleMatches == bestMatches }
-                .minOf { it.sample }
-            val nearby = candidates.filter {
-                it.sample - anchor in 0..(4 * symbolsPerBit)
-            }
-            if (nearby.isEmpty()) break
-            val failureStart = nearby.minOf { it.sample }
+            // Стриминговый приём разбирает кадры по порядку. Выбор кандидата
+            // с лучшим совпадением преамбулы и окна ±4 символа вокруг него
+            // мог потерять истинное начало: периодическая преамбула `1010…`
+            // даёт кандидата на два символа раньше, а настоящий старт
+            // оказывается дальше окна. Пробуем кандидатов по возрастанию
+            // позиции; арбитр по-прежнему CRC-16.
+            val ordered = candidates.sortedBy { it.sample }
+            val failureStart = ordered.first().sample
 
             val frame = try {
                 BfskDemodulator.decodeCandidates(
                     metric,
                     profile,
-                    nearby,
+                    ordered,
                     maxPayloadBytes = maxPayloadBytes,
                     minPreambleMatches = minPreambleMatches
                 )

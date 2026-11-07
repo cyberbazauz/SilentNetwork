@@ -516,8 +516,9 @@ object DataLinkCodec {
     }
 
     private fun validateProfile(profile: BfskProfile) {
-        if (!BfskProfile.dataProfiles().containsKey(profile.name)) {
-            throw ProfileError("профиль должен быть data-audible или data-robust")
+        if (!BfskProfile.supportedProfiles().containsKey(profile.name)) {
+            val supported = BfskProfile.supportedProfiles().keys.joinToString(", ")
+            throw ProfileError("неизвестный профиль '${profile.name}'; поддерживаются: $supported")
         }
     }
 

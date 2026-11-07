@@ -25,7 +25,14 @@ from typing import Any, Callable
 import numpy as np
 
 from snlab import audio, playback
-from snlab.config import DATA_PROFILES, BfskProfile
+from snlab.config import (
+    CHAT_MODES,
+    DATA_PROFILES,
+    DEFAULT_CHAT_MODE,
+    BfskProfile,
+    ChatMode,
+    get_chat_mode as _get_chat_mode,
+)
 from snlab import datalink
 from snlab.reporting import environment, utc_now, write_json
 from snlab.wavio import read_wav, write_pcm16
@@ -51,6 +58,9 @@ DATA_LIMITATIONS = [
 
 #: Имена профилей, допустимых в data link v0 (для UI и валидации).
 DATA_PROFILE_NAMES = tuple(sorted(DATA_PROFILES))
+
+#: Отображаемые названия режимов чата в порядке UI.
+CHAT_MODE_LABELS = tuple(mode.label for mode in CHAT_MODES.values())
 
 
 class DataDesktopError(ValueError):
@@ -139,6 +149,16 @@ def get_data_profile(name: str) -> BfskProfile:
             f"профиль {name!r} не предназначен для передачи данных; "
             f"доступны: {available}"
         ) from None
+
+
+def get_chat_mode(value: str) -> ChatMode:
+    """Вернуть режим чата по id или отображаемому названию."""
+    if not isinstance(value, str):
+        raise DataDesktopError("режим чата должен быть строкой")
+    try:
+        return _get_chat_mode(value)
+    except ValueError as exc:
+        raise DataDesktopError(str(exc)) from None
 
 
 def generate_data_message(
@@ -478,8 +498,10 @@ def _unique_stem(directory: Path, base: str) -> str:
 
 
 __all__ = [
+    "CHAT_MODE_LABELS",
     "DATA_LIMITATIONS",
     "DATA_PROFILE_NAMES",
+    "DEFAULT_CHAT_MODE",
     "DEFAULT_RECORD_SECONDS",
     "DataDesktopError",
     "DataPlaybackDisabled",
@@ -489,6 +511,7 @@ __all__ = [
     "RECEIVE_SCHEMA",
     "ReceivedData",
     "generate_data_message",
+    "get_chat_mode",
     "get_data_profile",
     "list_input_devices",
     "play_data_message",

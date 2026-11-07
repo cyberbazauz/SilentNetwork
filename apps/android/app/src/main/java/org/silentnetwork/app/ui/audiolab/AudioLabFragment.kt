@@ -616,10 +616,10 @@ class AudioLabFragment : Fragment() {
         }.second
     }
 
-    private fun createDataLinkMessage() {
+    private fun createDataLinkMessage(): DataLinkCodec.DataMessage? {
         val text = binding.etDatalinkMessage.text?.toString().orEmpty()
         val profile = selectedDataLinkProfile()
-        try {
+        return try {
             val (wavBytes, message) = DataLinkCodec.encodeToWav(text, profile)
             val filename = "datalink_tx_${profile.name}.wav"
             val file = File(requireContext().cacheDir, filename)
@@ -645,18 +645,24 @@ class AudioLabFragment : Fragment() {
                 message.durationS
             )
             Toast.makeText(requireContext(), "Сообщение закодировано (WAV создан)", Toast.LENGTH_SHORT).show()
+            message
         } catch (t: Throwable) {
             binding.tvDatalinkTxStatus.text = "Ошибка: ${t.message}"
             Toast.makeText(requireContext(), t.message ?: "Не удалось создать сообщение", Toast.LENGTH_LONG).show()
+            null
         }
     }
 
     private fun showDataLinkPlayDialog() {
+        val text = binding.etDatalinkMessage.text?.toString().orEmpty()
+        val profile = selectedDataLinkProfile()
+        // The Play button is always clickable. If the text or profile changed
+        // after the last "Создать сообщение", encode now instead of silently
+        // playing a stale message or doing nothing.
         val message = dataLinkMessage
-        if (message == null) {
-            Toast.makeText(requireContext(), R.string.datalink_tx_not_created, Toast.LENGTH_SHORT).show()
-            return
-        }
+            ?.takeIf { it.text == text && it.profile.name == profile.name }
+            ?: createDataLinkMessage()
+            ?: return
         val msg = getString(
             R.string.datalink_play_dialog_msg,
             message.text,

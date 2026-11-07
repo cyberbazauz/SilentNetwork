@@ -433,6 +433,12 @@ object BfskDemodulator {
         minPreambleMatches: Int = PREAMBLE_BITS
     ): DecodedFrame {
         var firstError: ReceiverError? = null
+        // IncompleteFrame means a candidate already passed the preamble, sync
+        // word, version and length checks but the buffer ends inside the
+        // declared frame. It must win over an earlier periodic preamble
+        // candidate that failed the sync word: the stream decoder has to keep
+        // the frame and wait for the rest instead of resynchronising past it.
+        var incompleteError: BfskDemodulator.IncompleteFrame? = null
         for (start in candidates) {
             try {
                 return decodeFromMetric(
@@ -442,6 +448,9 @@ object BfskDemodulator {
                     maxPayloadBytes = maxPayloadBytes,
                     minPreambleMatches = minPreambleMatches
                 )
+            } catch (error: BfskDemodulator.IncompleteFrame) {
+                if (incompleteError == null) incompleteError = error
+                if (firstError == null) firstError = error
             } catch (error: ReceiverError) {
                 if (firstError == null) firstError = error
             }
@@ -466,6 +475,8 @@ object BfskDemodulator {
                             maxPayloadBytes = maxPayloadBytes,
                             minPreambleMatches = minPreambleMatches
                         )
+                    } catch (error: BfskDemodulator.IncompleteFrame) {
+                        if (incompleteError == null) incompleteError = error
                     } catch (_: ReceiverError) {
                         // Следующий сдвиг.
                     }
@@ -473,6 +484,7 @@ object BfskDemodulator {
             }
         }
 
+        if (incompleteError != null) throw incompleteError
         throw firstError ?: SignalNotFound("не найдено ни одного кандидата начала кадра")
     }
 

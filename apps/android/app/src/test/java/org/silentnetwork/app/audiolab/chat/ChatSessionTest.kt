@@ -62,6 +62,34 @@ class StreamFrameDecoderTest {
     }
 
     @Test
+    fun decodesFrameSplitAcrossBlocksWithPeriodicPrefix() {
+        val payload = "блоки".toByteArray(Charsets.UTF_8)
+        val frame = FrameV1.build(payload, maxPayloadBytes = 64)
+        // Two extra preamble bits make the periodic `1010…` start ambiguous;
+        // the true frame start sits later and must not be dropped.
+        val bits = ByteArray(frame.bits.size + 2)
+        bits[0] = 1
+        bits[1] = 0
+        frame.bits.copyInto(bits, 2)
+        val samples = FloatArray(2_000) +
+            BfskModulator.bitsToSamples(bits, profile, rampMs = 0.5) +
+            FloatArray(1_000)
+        val decoder = StreamFrameDecoder(profile)
+
+        val events = ArrayList<StreamFrameDecoder.FrameEvent>()
+        var offset = 0
+        while (offset < samples.size) {
+            val end = minOf(offset + 512, samples.size)
+            events.addAll(decoder.feed(samples.copyOfRange(offset, end)))
+            offset = end
+        }
+        events.addAll(decoder.flush())
+
+        assertEquals(1, events.size)
+        assertArrayEquals(payload, events[0].payload)
+    }
+
+    @Test
     fun noiseProducesNoFrames() {
         val decoder = StreamFrameDecoder(profile)
         val random = Random(20261104)
@@ -116,6 +144,41 @@ class ChatSessionTest {
         val received = events.filterIsInstance<ChatSession.Event.TextReceived>()
         assertEquals(1, received.size)
         assertEquals(text, received[0].text)
+    }
+
+    @Test
+    fun assemblesFileFedInMicrophoneBlocks() {
+        val outputDir = Files.createTempDirectory("sn-chat-blocks").toFile()
+        val content = ByteArray(200) { (it * 37 + 11 and 0xFF).toByte() }
+        val message = FileTransferCodec.encodeFileToPcm(
+            data = content,
+            filename = "blocks.bin",
+            profile = BfskProfile.DATA_AUDIBLE,
+            transferId = 43
+        )
+        val session = ChatSession(
+            profile = BfskProfile.DATA_AUDIBLE,
+            outputDir = outputDir,
+            minPreambleMatches = 28
+        )
+        val samples = SignalGenerator.fromPcm16LittleEndian(message.pcmBytes)
+
+        val events = ArrayList<ChatSession.Event>()
+        var offset = 0
+        while (offset < samples.size) {
+            val end = minOf(offset + 4_096, samples.size)
+            events.addAll(session.feed(samples.copyOfRange(offset, end)))
+            offset = end
+        }
+        events.addAll(session.flush())
+
+        assertTrue(events.none { it is ChatSession.Event.FileFailed })
+        val completed = events.filterIsInstance<ChatSession.Event.FileCompleted>()
+        assertEquals(1, completed.size)
+        assertEquals("blocks.bin", completed[0].filename)
+        assertEquals(content.size, completed[0].fileSize)
+        assertNotNull(completed[0].savedTo)
+        assertArrayEquals(content, File(completed[0].savedTo!!).readBytes())
     }
 
     @Test

@@ -118,6 +118,56 @@ def test_decoder_does_not_repeat_a_frame_after_trailing_silence() -> None:
     assert decoder.feed(silence) == []
 
 
+def test_decoder_decodes_block_stream_with_periodic_prefix() -> None:
+    """Регрессия: ложный кандидат преамбулы не должен съедать настоящий кадр.
+
+    Преамбула `1010…` периодична, поэтому два лишних бита перед кадром дают
+    кандидата на два символа раньше настоящего старта. Старый выбор «лучшего»
+    кандидата с окном ±4 символа мог исключить настоящий старт и потерять
+    кадр. Поток приходит блоками по 512 отсчётов, как из микрофона.
+    """
+
+    from snlab.bfsk import modulate
+
+    message = encode_text_message("блоки и преамбула", PROFILE)
+    bits = np.concatenate(
+        (np.array([1, 0], dtype=np.uint8), message.frame.bits)
+    )
+    signal = modulate(bits, PROFILE).samples
+    stream = np.concatenate(
+        (signal, np.zeros(PROFILE.sample_rate // 2, dtype=np.float64))
+    )
+    decoder = StreamingFrameDecoder(PROFILE)
+
+    frames = []
+    for block in chunked(stream, 512):
+        frames.extend(decoder.feed(block))
+
+    assert [frame.payload for frame in frames] == [message.payload]
+
+
+def test_decoder_decodes_split_frames_in_noisy_block_stream() -> None:
+    """Кадр, разрезанный блоками и шумом, не должен теряться при ресинхронизации."""
+
+    rng = np.random.default_rng(20261105)
+    message = encode_text_message("шумный поток", PROFILE)
+    stream = np.concatenate(
+        (
+            np.zeros(PROFILE.sample_rate // 2, dtype=np.float64),
+            message.samples,
+            np.zeros(PROFILE.sample_rate // 2, dtype=np.float64),
+        )
+    )
+    stream = stream + rng.normal(0.0, 0.01, stream.size)
+    decoder = StreamingFrameDecoder(PROFILE)
+
+    frames = []
+    for block in chunked(stream, 1024):
+        frames.extend(decoder.feed(block))
+
+    assert [frame.payload for frame in frames] == [message.payload]
+
+
 def test_decoder_buffer_stays_bounded_during_long_silence() -> None:
     decoder = StreamingFrameDecoder(PROFILE)
     silence = np.zeros(PROFILE.sample_rate, dtype=np.float64)
@@ -219,6 +269,50 @@ def test_chat_session_assembles_and_saves_file_once(tmp_path: Path) -> None:
     saved = Path(completed[0].saved_to or "")
     assert saved.read_bytes() == content
     assert saved.parent.name == "rx-1700000000123-7"
+
+
+def test_chat_session_assembles_file_fed_in_microphone_blocks(tmp_path: Path) -> None:
+    content = bytes((index * 37 + 11) % 256 for index in range(1000))
+    message = encode_file_message(content, "blocks.bin", PROFILE, transfer_id=12)
+    session = ChatSession(PROFILE, output_dir=tmp_path)
+
+    events = []
+    for block in chunked(message.samples, 512):
+        events.extend(session.feed(block))
+    events.extend(session.flush())
+
+    completed = [event for event in events if isinstance(event, FileCompleted)]
+    failed = [event for event in events if isinstance(event, FileFailed)]
+
+    assert failed == []
+    assert len(completed) == 1
+    assert Path(completed[0].saved_to or "").read_bytes() == content
+
+
+@pytest.mark.parametrize("size", [0, 1, 40, 200])
+def test_chat_session_assembles_boundary_sizes_in_blocks(
+    tmp_path: Path, size: int
+) -> None:
+    """Граничные размеры файла (0, 1, несколько чанков) в потоке чата."""
+
+    content = bytes((index * 53 + 7) % 256 for index in range(size))
+    message = encode_file_message(
+        content, f"boundary-{size}.bin", PROFILE, transfer_id=size + 1
+    )
+    session = ChatSession(PROFILE, output_dir=tmp_path)
+
+    events = []
+    for block in chunked(message.samples, 4096):
+        events.extend(session.feed(block))
+    events.extend(session.flush())
+
+    completed = [event for event in events if isinstance(event, FileCompleted)]
+    failed = [event for event in events if isinstance(event, FileFailed)]
+
+    assert failed == []
+    assert len(completed) == 1
+    assert completed[0].file_size == size
+    assert Path(completed[0].saved_to or "").read_bytes() == content
 
 
 def test_chat_session_does_not_repeat_completed_event_for_same_transfer(

@@ -677,35 +677,27 @@ def decode_packets_from_samples(
         view = metric[offset:]
         try:
             candidates = find_frame_candidates(
-                view, profile, min_preamble_matches=min_preamble_matches
+                view,
+                profile,
+                min_preamble_matches=min_preamble_matches,
+                limit=32,
             )
         except SignalNotFound:
             break
 
         frame = None
-        # `find_frame_candidates` scans the whole remaining recording, so it
-        # also returns preambles of later frames and weaker partial matches
-        # before the real one. The anchor is the earliest candidate with the
-        # best preamble score; the `1010…` ambiguity is two symbols wide, and
-        # a noisy refinement can add one more symbol on each side.
-        best_matches = max(item.preamble_matches for item in candidates)
-        anchor = min(
-            item.sample
-            for item in candidates
-            if item.preamble_matches == best_matches
-        )
-        nearby = [
-            item
-            for item in candidates
-            if 0 <= item.sample - anchor <= 4 * symbols_per_bit
-        ]
-        failure_start = nearby[0]
+        # Try candidates in ascending sample order so an earlier real frame is
+        # not hidden by a later one with a stronger preamble correlation. The
+        # `1010…` preamble is periodic, so a phantom start two symbols early is
+        # normal; sync word, length and CRC-16 decide which one is real.
+        ordered = sorted(candidates, key=lambda item: item.sample)
+        failure_start = ordered[0]
         first_error: ReceiverError | None = None
         try:
             frame = decode_candidates(
                 view,
                 profile,
-                nearby,
+                ordered,
                 max_payload_bytes=MAX_DATA_PAYLOAD_BYTES,
                 min_preamble_matches=min_preamble_matches,
             )

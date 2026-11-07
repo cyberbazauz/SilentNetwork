@@ -1,0 +1,87 @@
+{
+  "schema": "silentnetwork.acoustic-lab.reliable-transport-vectors/1",
+  "note": "ART/1 packet vectors inside Frame v1 payload. Deterministic, no audio, no DSP. SHA-256 of 120 bytes of 0x78. Bitmap of STATUS: chunks 0 and 2 received (0xA0), meta_ok=1, complete=0.",
+  "vectors": [
+    {
+      "name": "manifest",
+      "type": "manifest",
+      "packet_hex": "534602010703000012342802000000780003340113f05a0b594787f5ecd315edc96141bd3243203d1b7d4f0836f37308b276ba98",
+      "fields": {
+        "transfer_id": 7,
+        "session_id": 4660,
+        "round": 3,
+        "seq": 0,
+        "slot": 0,
+        "slots": 2,
+        "total_size": 120,
+        "total_chunks": 3,
+        "chunk_bytes": 52,
+        "meta_present": true,
+        "sha256_hex": "13f05a0b594787f5ecd315edc96141bd3243203d1b7d4f0836f37308b276ba98"
+      }
+    },
+    {
+      "name": "data",
+      "type": "data",
+      "packet_hex": "534602020703000112343402000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30313233",
+      "fields": {
+        "transfer_id": 7,
+        "session_id": 4660,
+        "round": 3,
+        "seq": 1,
+        "slot": 0,
+        "slots": 2,
+        "payload_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30313233"
+      }
+    },
+    {
+      "name": "status",
+      "type": "status",
+      "packet_hex": "5346020307030000123406000200030002a0",
+      "fields": {
+        "transfer_id": 7,
+        "session_id": 4660,
+        "round": 3,
+        "seq": 0,
+        "slot": 0,
+        "slots": 0,
+        "complete": false,
+        "meta_ok": true,
+        "total_chunks": 3,
+        "received_count": 2,
+        "bitmap_hex": "a0",
+        "missing": [1]
+      }
+    },
+    {
+      "name": "meta",
+      "type": "meta",
+      "packet_hex": "534602050700000012340900086e6f74652e747874",
+      "fields": {
+        "transfer_id": 7,
+        "session_id": 4660,
+        "round": 0,
+        "seq": 0,
+        "slot": 0,
+        "slots": 0,
+        "filename": "note.txt"
+      }
+    },
+    {
+      "name": "abort",
+      "type": "abort",
+      "packet_hex": "534602040703000012340900026261642068617368",
+      "fields": {
+        "transfer_id": 7,
+        "session_id": 4660,
+        "round": 3,
+        "seq": 0,
+        "slot": 0,
+        "slots": 0,
+        "reason": 2,
+        "error_type": "hash_mismatch",
+        "message": "bad hash"
+      }
+    }
+  ]
+}

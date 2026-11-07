@@ -584,6 +584,13 @@ def decode_candidates(
         ReceiverError: ни один кандидат и ни один сдвиг не прошёл проверки.
     """
     first_error: ReceiverError | None = None
+    # ``IncompleteFrame`` means a candidate already passed the preamble, sync
+    # word, version and length checks but the recording ends in the middle of
+    # the declared frame. It must win over an earlier periodic preamble
+    # candidate that failed the sync word: the stream decoder has to keep such
+    # a frame and wait for the rest instead of resynchronising past it. This is
+    # the normal case in a continuous chat when a block boundary splits a frame.
+    incomplete_error: IncompleteFrame | None = None
     for start in candidates:
         try:
             return decode_from_metric(
@@ -593,7 +600,12 @@ def decode_candidates(
                 max_payload_bytes=max_payload_bytes,
                 min_preamble_matches=min_preamble_matches,
             )
-        except ReceiverError as exc:  # noqa: PERF203 - кандидатов единицы
+        except IncompleteFrame as exc:  # noqa: PERF203 - кандидатов единицы
+            if incomplete_error is None:
+                incomplete_error = exc
+            if first_error is None:
+                first_error = exc
+        except ReceiverError as exc:
             if first_error is None:
                 first_error = exc
 
@@ -617,9 +629,14 @@ def decode_candidates(
                         max_payload_bytes=max_payload_bytes,
                         min_preamble_matches=min_preamble_matches,
                     )
+                except IncompleteFrame as exc:
+                    if incomplete_error is None:
+                        incomplete_error = exc
                 except ReceiverError:
                     continue
 
+    if incomplete_error is not None:
+        raise incomplete_error
     if first_error is None:  # pragma: no cover - защита от пустого списка
         raise SignalNotFound("не найдено ни одного кандидата начала кадра")
     raise first_error

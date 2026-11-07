@@ -1,138 +1,180 @@
-# SilentNetwork
+<div align="center">
 
-Автономная акустическая система связи: данные передаются от динамика к
-микрофону через звуковую волну. Интернет, Wi-Fi, Bluetooth и сотовая связь не
-используются как транспорт данных и не являются резервным каналом.
+# 🎧 SilentNetwork
 
-**Текущее состояние: исследовательский этап.** Криптографии, протокола SCNP и
-mesh-сети пока нет. Есть BFSK-тракт, Windows Desktop Lab и Android Audio Lab,
-включая раздел передачи текста через звук. Первый приём Laptop → Phone
-подтверждён на уровне файла: WAV и JSON с телефона независимо декодированы,
-CRC-16 и текст совпали. Серия SN-028 ещё не начата; обратное направление ждёт
-внешний микрофон. Добавлен Python-прототип файлового слоя v0: файл до 8192 байт
-разбивается на пакеты MANIFEST/DATA/END, передаётся кадрами Frame v1 и
-собирается обратно с проверкой SHA-256. В Windows Desktop Lab появились
-карточки выбора файла, подтверждаемого PLAY и записи с микрофона. В Android
-появилась карточка приёма файла с записью 15/30/60/120/240/420 с и экспортом
-файла и JSON-отчёта. Добавлен непрерывный чат: Windows и Android постоянно
-слушают микрофон, отправка текста или файла сразу запускает звук, а приём идёт
-инкрементально. Это пока файловый round-trip через WAV, синтетический PCM и
-локальный UI, не подтверждённая передача через воздух и не доказательство
-устойчивости канала.
+### Связь через звук: динамик → воздух → микрофон
 
-## Что уже есть
+**Без Wi-Fi. Без Bluetooth. Без интернета. Без сотовой сети.**
 
-| Область | Состояние |
-|---|---|
-| Нормативные документы проекта | есть (`AGENTS.md`, `TASK_BOARD.md`) |
-| Аудит репозитория и окружения | выполнен: `docs/audit/2026-11-01-repository-audit.md` |
-| Исходная архитектура v1.0 | каноническая копия в `docs/reference/` |
-| Acoustic Lab: инфраструктура | есть и покрыта тестами (`acoustic-lab/snlab/`) |
-| Acoustic Lab: сканер устройств и фона | реализован, реальный захват 10 с проверен (SN-010) |
-| Acoustic Lab: BFSK-передатчик (WAV) | реализован, 20/20 одинаковых SHA-256 (SN-011) |
-| Acoustic Lab: BFSK-приёмник (WAV) | реализован, файловый round-trip и проверка CRC (SN-021) |
-| Acoustic Lab: файловый слой v0 | реализован: файл 0…8192 байт, пакеты MANIFEST/DATA/END, SHA-256, CLI и JSON-отчёты; Windows UI для генерации, PLAY и приёма; Android-карточка приёма файла (SN-034) |
-| Непрерывный чат | реализован: постоянное прослушивание, потоковый разбор Frame v1, отправка текста и файла сразу в звук, полудуплекс (SN-035); на реальном телефоне и через воздух не проверен |
-| Acoustic Lab: BER/PER benchmark (AWGN) | реализован, M0-6 100/100 при 15 дБ (SN-013) |
-| Windows Desktop Lab | реализован: WAV, PLAY через выбранный динамик, анализ записи телефона (SN-015/SN-016), передача и приём текста через звук (SN-025), вкладка непрерывного чата (SN-035) |
-| Android Audio Lab | реализован: запись, WAV/JSON, анализ и вердикт, передача и приём текста через звук (SN-026), вкладка непрерывного чата (SN-035) |
-| Standalone Windows EXE | собран `dist/SilentNetwork-Desktop.exe` (PyInstaller onefile, 66 МБ), smoke-test и запуск окна проверены |
-| Реальная передача через воздух | Laptop → Phone: `FIRST CONTACT VERIFIED AT FILE LEVEL — SERIES NOT STARTED`; Phone → Laptop: `PENDING EXTERNAL MICROPHONE` |
-| Rust Core, SCNP, криптография | не реализованы |
+[![Status](https://img.shields.io/badge/status-research%20prototype-orange?style=for-the-badge)](docs/current-milestone.md)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](acoustic-lab/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](apps/android/)
+[![Tests](https://img.shields.io/badge/tests-993%20%7C%200%20failures-brightgreen?style=for-the-badge)](#тесты)
+[![Mesh](https://img.shields.io/badge/mesh-not%20ready-red?style=for-the-badge)](#чего-пока-нет)
 
-## Структура репозитория
+</div>
 
-```text
-SilentNetwork/
-├── AGENTS.md                     # правила Agent 1 (единственный агент)
-├── PROMPT_AGENT_1.txt            # стартовый промпт Agent 1
-├── TASK_BOARD.md                 # единый статус задач
-├── .gitignore / .gitattributes
-├── docs/
-│   ├── audit/                    # аудиты состояния
-│   ├── decisions/                # ADR (ADR-001 — кадр и BFSK)
-│   ├── current-milestone.md      # текущий milestone и критерии приёмки
-│   └── reference/                # канонические исходные документы
-└── acoustic-lab/                 # Python-исследования и измерения
-    ├── snlab/                    # профили, WAV I/O, метрики, AWGN, BFSK, чат
-    ├── tests/                    # pytest
-    ├── scanner.py                # SN-010, реализован
-    ├── transmitter.py            # SN-011, реализован
-    ├── receiver.py               # SN-021, реализован
-    ├── file_transfer.py          # SN-034, CLI файлового слоя
-    └── benchmark.py              # SN-013, реализован
+---
+
+## Что это
+
+SilentNetwork — исследовательский проект автономной акустической связи.
+Данные передаются звуковой волной от динамика к микрофону: текст и файлы
+кодируются в BFSK-сигнал, проходят через воздух и декодируются на принимающей
+стороне.
+
+Это не «ещё один мессенджер». Это попытка построить физический канал связи там,
+где радио запрещено, недоступно или нежелательно, — и честно измерить, что из
+этого получается.
+
+```mermaid
+flowchart LR
+    A["💬 Текст / 📎 файл"] --> B["Frame v1<br/>CRC-16 + BFSK"]
+    B --> C["🔊 Динамик"]
+    C -.->|"звуковая волна"| D["🎙️ Микрофон"]
+    D --> E["Демодуляция<br/>и разбор кадров"]
+    E --> F["✅ Проверка CRC<br/>и SHA-256"]
+    F --> G["💬 Текст / 📎 файл"]
+
+    style C fill:#1f6feb,color:#fff
+    style D fill:#1f6feb,color:#fff
+    style A fill:#238636,color:#fff
+    style G fill:#238636,color:#fff
 ```
 
-`docs/architecture.md`, `docs/protocol-spec.md`, `docs/security-model.md` и
-`docs/android-core-api.md` ещё не созданы: они появятся по мере утверждения
-соответствующих решений.
+**Ключевой принцип:** интернет, Wi-Fi, Bluetooth и сотовая связь не
+используются как транспорт данных и не являются резервным каналом. Если звук не
+дошёл — данные не дошли.
+
+---
+
+## Честный статус
+
+> **Это рабочий исследовательский прототип, а не готовая система связи.**
+> Mesh-сеть не реализована. Rust Core, SCNP, шифрование и аутентификация ещё не
+> написаны. Передача через воздух подтверждена только первым файловым контактом
+> Laptop → Phone; серия измерений не проведена.
+
+| Компонент | Состояние | Что это значит |
+|---|---|---|
+| BFSK-модулятор и демодулятор | ✅ Работает | Python и Kotlin, файловые и потоковые тесты |
+| Frame v1 + CRC-16/CCITT-FALSE | ✅ Работает | Формат зафиксирован в ADR-001 |
+| Передача текста (до 64 байт) | ✅ Работает | Windows ↔ Android, WAV и непрерывный чат |
+| Передача файла (до 8192 байт) | ✅ Работает | Пакеты MANIFEST/DATA/END, SHA-256 |
+| Windows Desktop Lab | ✅ Работает | WAV, PLAY, запись, анализ, чат |
+| Android Audio Lab + Messenger | ✅ Работает | Запись, декодирование, чат, экспорт |
+| ART/1 — надёжная доставка | 🧪 Python-прототип | ACK/retry/окна есть в Python, на Android не портировано |
+| Реальная серия измерений | 🚧 Не начата | Нужны десятки прогонов на разных дистанциях |
+| Rust Core / SCNP | ⛔ Не реализовано | Только контракты и планы |
+| Шифрование и аутентификация | ⛔ Не реализовано | CRC и SHA-256 — не замена AEAD |
+| Mesh / Discovery / Routing | ⛔ Не реализовано | Следующий большой этап |
+
+Подробный статус задач — в [`TASK_BOARD.md`](TASK_BOARD.md), текущая цель — в
+[`docs/current-milestone.md`](docs/current-milestone.md).
+
+---
+
+## Как это устроено
+
+### Кадр и модуляция
+
+Один кадр Frame v1 содержит преамбулу, служебные поля, payload и CRC-16.
+Payload ограничен **64 байтами** — это осознанное ограничение первого модема,
+а не временная заглушка.
+
+| Профиль | Частоты (mark / space) | Символьная скорость | Где используется |
+|---|---|---|---|
+| `data-audible` | 1200 / 2200 Гц | 300 бод | Windows, основной |
+| `data-robust` | 1000 / 2000 Гц | 100 бод | Windows, помехоустойчивый |
+| `chat-normal` | 1200 / 2200 Гц | 300 бод | Android |
+| `chat-excellent` | 1000 / 2000 Гц | 150 бод | Android |
+| `chat-highfreq` | 16000 / 17500 Гц | 100 бод | Android, экспериментальный |
+
+> Частоты 16–22 кГц — **экспериментальный диапазон**, а не гарантия
+> неслышимости или поддержки конкретным устройством.
+
+### Файловый слой
+
+Файл до 8192 байт разбивается на пакеты `MANIFEST` / `DATA` / `END`,
+передаётся кадрами Frame v1 и собирается обратно. Файл создаётся только при
+полном наборе чанков и совпадении SHA-256. Это защита от случайных повреждений,
+а не от злоумышленника.
+
+### Непрерывный чат
+
+Windows Desktop Lab и Android Messenger постоянно слушают микрофон. Отправка
+текста или файла сразу запускает звук — отдельных шагов «создать WAV» и
+«подтвердить PLAY» нет. Приём идёт потоково, по скользящему PCM-буферу.
+
+Чат **полудуплексный**: пока одна сторона передаёт, она не принимает. ACK,
+шифрования и аутентификации в чате нет.
+
+---
+
+## Демо
+
+Проект состоит из двух приложений и одной лаборатории:
+
+| | Windows Desktop Lab | Android Messenger |
+|---|---|---|
+| Передача текста | ✅ | ✅ |
+| Приём текста | ✅ | ✅ |
+| Передача файла | ✅ | ✅ |
+| Приём файла | ✅ | ✅ |
+| Непрерывный чат | ✅ | ✅ |
+| Ручной анализ WAV | ✅ | ✅ |
+
+Windows-приложение — Tkinter + NumPy/SciPy. Android-приложение — Kotlin,
+`minSdk 26`, Material UI, без собственной DSP-реализации в UI-слое.
+
+---
 
 ## Быстрый старт
 
-Требуется Python 3.12 (проверено на 3.12.10, Windows).
+### Windows: Python-лаборатория
+
+Требуется Python 3.12 (проверено на 3.12.10, Windows 10/11).
 
 ```powershell
 cd acoustic-lab
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m pytest tests -q
+python -m pip install -r requirements.txt -r requirements-desktop.txt
+python desktop_app.py
 ```
 
-Все тесты проверяют инфраструктуру (конфигурацию, WAV, метрики, AWGN и
-активную область сигнала), анализаторы сканера, BFSK-передатчик, файловый
-BFSK-приёмник, файловый слой, непрерывный чат и BER/PER benchmark; аудиобэкенд
-в тестах подменяется фейком, реальный микрофон и динамик не открываются.
-
-## Готовые сборки
-
-Каталог `dist/` не входит в Git и собирается локально.
-
-| Файл | Что это |
-|---|---|
-| `dist/SilentNetwork-Desktop.exe` | standalone Windows-приложение, Python не нужен |
-| `dist/SilentNetwork-Android.apk` | debug-сборка Android-приложения |
-
-**Windows.** Запустить `dist\SilentNetwork-Desktop.exe` двойным кликом. В
-разделе «Передача данных» можно сформировать WAV с текстом, проиграть его через
-выбранный динамик, записать микрофон и декодировать принятый кадр; WAV и JSON
-сохраняются рядом с `.exe` в `results/hardware_calibration/`. Проверка без
-открытия окна:
+Отдельные CLI-инструменты:
 
 ```powershell
-dist\SilentNetwork-Desktop.exe --smoke-test
+python scanner.py          # скан устройств и фона
+python transmitter.py      # BFSK-передатчик
+python receiver.py         # BFSK-приёмник
+python file_transfer.py    # файловый слой v0
+python benchmark.py        # BER/PER на AWGN
 ```
 
-EXE собран PyInstaller 6.22.3 (onefile, windowed) из `acoustic-lab/desktop_app.py`.
-Сборка воспроизводится командой из `docs/sn028-packaging.md`; `torch`, `pandas`,
-`matplotlib` и тестовые пакеты исключены. EXE не подписан сертификатом.
-
-**Android.** Установка на подключённый по USB телефон с отладкой:
+### Windows: готовая сборка
 
 ```powershell
-& "C:\Android\sdk\platform-tools\adb.exe" install -r "dist\SilentNetwork-Android.apk"
+dist\SilentNetwork-Desktop.exe
+dist\SilentNetwork-Desktop.exe --smoke-test   # без открытия окна
 ```
 
-APK подписан debug-ключом, а не production-ключом. Приложение содержит те же
-возможности: передача текста, запись, декодирование, экспорт WAV/JSON.
+EXE собирается локально через PyInstaller (onefile, 66 МБ), не подписан
+сертификатом и не входит в Git.
 
-> Ни EXE, ни APK ещё не участвовали в документально подтверждённой передаче
-> через воздух. Успешный smoke-test, запуск окна и файловый round-trip не
-> являются доказательством акустической передачи.
-
-**Разбор серии SN-028.** Экспортированные с телефона WAV раскладываются по
-именам `sn028-w2p-<дистанция>-<M1..M4>-<номер>.wav` и проверяются пакетно:
+### Android
 
 ```powershell
-cd acoustic-lab
-python sn028_series.py --dir <каталог> --distance 30cm
+cd apps\android
+.\gradlew.bat assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Отчёт CSV/JSON/Markdown сохраняется в `acoustic-lab/results/sn028/series/`.
-Пороги: 30 см — 10/10, 1 м — ≥ 8/10, 3 м — исследовательски, шум — 0 ложных
-кадров.
+APK подписан debug-ключом. Для работы нужны разрешения на запись и
+воспроизведение аудио.
 
-**Файловый слой v0.** Передача файла до 8192 байт и обратная сборка из WAV:
+### Файл через звук из CLI
 
 ```powershell
 cd acoustic-lab
@@ -140,87 +182,135 @@ python file_transfer.py send --file note.txt --out results\note.wav
 python file_transfer.py receive --wav results\note.wav --out-dir results\received
 ```
 
-`send` создаёт WAV и отчёт `<имя>.tx.json`, `receive` — файл и отчёт
-`<имя>.rx.json`. Файл создаётся только при полном наборе чанков и совпадении
-SHA-256. Это файловый канал L0: воспроизведение WAV в динамик и запись
-микрофона выполняются отдельно и не считаются доказанными этим инструментом.
-Контракт: `docs/acoustic-file-transfer.md`.
+`send` создаёт WAV и отчёт `.tx.json`, `receive` — файл и отчёт `.rx.json`.
+Это файловый канал L0: воспроизведение в динамик и запись микрофона выполняются
+отдельно и не считаются доказанной передачей через воздух.
 
-В `desktop_app.py` те же операции доступны через карточки «Передать файл» и
-«Принять файл»: выбрать файл, создать WAV, подтвердить PLAY, записать
-микрофон и увидеть имя, размер, SHA-256 и путь собранного файла. Отчёты
-Desktop Lab используют отдельные схемы `file-transfer-tx`,
-`file-transfer-playback` и `file-transfer-receive`; исходная схема контракта
-сохраняется в `contract_schema`.
+---
 
-На Android в Audio Lab добавлена карточка «Файлы через звук»: профиль,
-запись 15/30/60/120/240/420 с, приём Laptop → Phone, показ вердикта, имени,
-размера, SHA-256 и экспорт принятого файла и JSON-отчёта. Кодек портирован из
-Python и проверен JVM-тестами на точных векторах, round-trip, потере и повторе
-чанков, конфликтах и SHA-256. Файл 8192 байта звучит около 364 с, поэтому для
-него нужна запись 420 с и запас памяти; успешный приём на реальном телефоне
-пока не подтверждён.
+## Тесты
 
-**Непрерывный чат.** На вкладке «Чат» Windows Desktop Lab и Android Messenger
-микрофон слушает постоянно. Отправка текста или файла сразу запускает звук:
-отдельные шаги «создать WAV» и «подтвердить PLAY» в чате не нужны. Приёмник
-разбирает Frame v1 по скользящему PCM-буферу и выдаёт текст или собирает файл
-по мере поступления звука. Чат полудуплексный: на время собственного
-воспроизведения приём приостанавливается, а после возобновления декодер
-сбрасывает неполный кадр. Текст до 64 байт, файл до 8192 байт; payload,
-начинающийся с `SF`, зарезервирован под файловый пакет. ACK, шифрования и
-аутентификации нет. Подробности и ограничения: `docs/acoustic-chat.md`.
+Все цифры ниже получены реальным запуском, а не оценены «на глаз».
 
-Кросс-проверка Python ↔ Kotlin для Data Link и файлового слоя запускается из
-корня репозитория командой `python acoustic-lab/cross_check_android.py`.
-Последний прогон: 8/8 кейсов в обе стороны, включая текст, кириллическое имя,
-бинарный файл и пустой файл; отчёт — `acoustic-lab/results/sn027-cross-check.md`.
-Это проверка WAV на JVM, а не передача через воздух.
+| Набор | Команда | Результат |
+|---|---|---|
+| Python | `cd acoustic-lab; python -m pytest -q` | **777 passed** за 154.68 с |
+| Android | `cd apps\android; .\gradlew.bat testDebugUnitTest testReleaseUnitTest` | **216 tests**, 2 skipped, 0 failures |
+| Python ↔ Kotlin | `python acoustic-lab\cross_check_android.py` | **8/8** кейсов в обе стороны |
+
+Что покрыто:
+
+- конфигурация профилей, WAV I/O, метрики, AWGN, BER/PER;
+- BFSK-модулятор и демодулятор на детерминированных векторах;
+- файловый слой: потеря, повтор и конфликт чанков, SHA-256;
+- потоковый разбор Frame v1 и чат-сессия;
+- Android: кодек, профили чата, round-trip, негативные сценарии;
+- кросс-проверка Python ↔ Kotlin на одинаковых WAV (текст, кириллица,
+  бинарный файл, пустой файл).
+
+> В тестах аудиобэкенд подменяется фейком. Реальный микрофон и динамик тестами
+> не открываются. JVM- и файловые тесты **не доказывают** передачу через воздух.
+
+---
+
+## Структура репозитория
+
+```text
+SilentNetwork/
+├── acoustic-lab/            # Python: DSP, BFSK, файлы, чат, бенчмарки
+│   ├── snlab/               # профили, кадры, модуляция, приём, ART/1
+│   ├── tests/               # pytest
+│   ├── desktop_app.py       # Windows Desktop Lab
+│   ├── scanner.py           # скан устройств и фона
+│   ├── transmitter.py       # BFSK-передатчик
+│   ├── receiver.py          # BFSK-приёмник
+│   ├── file_transfer.py     # файловый слой v0
+│   └── benchmark.py         # BER/PER на AWGN
+├── apps/android/            # Kotlin: Audio Lab и Messenger
+│   └── app/src/main/java/org/silentnetwork/app/
+│       ├── audiolab/datalink/   # Frame v1, BFSK, кодеки
+│       ├── audiolab/chat/       # непрерывный чат
+│       ├── audiolab/audio/      # AudioRecord / AudioTrack
+│       └── ui/                  # Audio Lab, Messenger, статус
+├── docs/
+│   ├── decisions/           # ADR-001: Frame v1 и BFSK
+│   ├── current-milestone.md # цель M0 и критерии приёмки
+│   ├── acoustic-chat.md     # контракт чата
+│   ├── acoustic-file-transfer.md
+│   ├── sn028-*.md           # протоколы физических измерений
+│   └── reference/           # исходная архитектура v1.0
+├── TASK_BOARD.md            # единый статус работ
+└── AGENTS.md                # правила инженерного агента
+```
+
+---
+
+## Дорожная карта
+
+- [x] BFSK-тракт: модулятор, демодулятор, CRC-16
+- [x] Frame v1 и профили передачи
+- [x] Windows Desktop Lab и Android Audio Lab
+- [x] Файловый слой до 8192 байт
+- [x] Непрерывный чат Windows ↔ Android
+- [x] ART/1 в Python (ACK, retry, окна)
+- [ ] Серия реальных измерений Laptop → Phone и Phone → Laptop
+- [ ] ART/1 на Android
+- [ ] Rust Core и SCNP
+- [ ] Шифрование и аутентификация (AEAD)
+- [ ] Discovery и mesh-маршрутизация
+- [ ] Store-and-Forward и Relay
+
+Mesh — не «почти готово». Это отдельный большой этап, который начнётся только
+после подтверждения базового акустического канала измерениями.
+
+---
+
+## Чего пока нет
+
+Чтобы не было ложных ожиданий:
+
+- ❌ **Mesh-сети нет.** Нет discovery, маршрутов, relay и store-and-forward.
+- ❌ **Rust Core нет.** Есть только контракты и планы.
+- ❌ **SCNP нет.** Wire-формат не реализован.
+- ❌ **Шифрования нет.** CRC-16 и SHA-256 не заменяют AEAD.
+- ❌ **Нет подтверждённой дальности и скорости.** 10–50 м и 5–15 кбит/с —
+  целевые гипотезы, а не измеренные результаты.
+- ❌ **Нет гарантии неслышимости.** 16–22 кГц зависят от динамика, микрофона и
+  возраста слушателя.
+- ❌ **Нет универсальной совместимости.** Проверено на конкретном оборудовании.
+
+Первый реальный контакт Laptop → Phone подтверждён **на уровне файла**: WAV и
+JSON с телефона независимо декодированы, CRC-16 и текст совпали. Это один факт,
+а не серия измерений. Обратное направление ждёт внешний микрофон.
+
+---
 
 ## Документы
 
-- `docs/current-milestone.md` — milestone M0, 11 измеримых критериев и
-  фактические результаты SN-013.
-- `docs/sn028-physical-test-protocol.md` — протокол физического теста SN-028 и
-  быстрый старт Laptop → Phone.
-- `docs/sn028-stage-1-runbook.md` — точный порядок серии 30 см, 10 попыток.
-- `docs/sn028-next-plan.md` — план дальнейших работ после первого успеха.
-- `docs/acoustic-file-transfer.md` — контракт файлового слоя v0, пакеты,
-  лимиты, CLI и дорожная карта.
-- `docs/acoustic-chat.md` — непрерывный чат v0: потоковый декодер, сессия,
-  полудуплекс, ошибки и ограничения.
-- `docs/sn034-first-air-runbook.md` — подготовленный первый воздушный файл
-  43 байта на 30 см, порядок прогона и критерий успеха.
-- `acoustic-lab/results/sn028-first-contact.md` — независимая проверка первого
-  принятого WAV/JSON.
-- `docs/sn028-packaging.md` — сборка standalone Windows EXE.
-- `acoustic-lab/results/M0-report.md` — отчёт BER/PER на AWGN и M0-6.
-- `docs/decisions/ADR-001-acoustic-frame-v1.md` — формат кадра, CRC-16 и
-  BFSK-модуляция Acoustic Lab.
-- `docs/audit/2026-11-01-repository-audit.md` — состояние репозитория,
-  окружения, риски и блокеры.
-- `docs/reference/SilentNetwork_Architecture_v1.0.txt` — утверждённая
-  архитектура, SHA-256 `A8849A52A260A07B1DB74438F9AA9B6458551A76065086DFE328E0525EE6E9D5`.
-- `docs/reference/README.md` — правила работы с каноническими документами.
+| Документ | О чём |
+|---|---|
+| [`docs/decisions/ADR-001-acoustic-frame-v1.md`](docs/decisions/ADR-001-acoustic-frame-v1.md) | Frame v1, CRC-16, BFSK |
+| [`docs/acoustic-chat.md`](docs/acoustic-chat.md) | Контракт непрерывного чата |
+| [`docs/acoustic-file-transfer.md`](docs/acoustic-file-transfer.md) | Файловый слой v0 |
+| [`docs/acoustic-reliable-transport.md`](docs/acoustic-reliable-transport.md) | ART/1: ACK, retry, окна |
+| [`docs/current-milestone.md`](docs/current-milestone.md) | Цель M0 и критерии |
+| [`docs/sn028-physical-test-protocol.md`](docs/sn028-physical-test-protocol.md) | Протокол физических измерений |
+| [`docs/sn028-packaging.md`](docs/sn028-packaging.md) | Сборка EXE и APK |
+| [`docs/audit/2026-11-01-repository-audit.md`](docs/audit/2026-11-01-repository-audit.md) | Аудит состояния и рисков |
+| [`docs/reference/SilentNetwork_Architecture_v1.0.txt`](docs/reference/SilentNetwork_Architecture_v1.0.txt) | Исходная архитектура |
 
-## Чего нельзя утверждать
-
-- Что передача через воздух уже подтверждена серией измерений SN-028.
-- Что файловый round-trip через WAV, smoke-test или успешный `send`/`receive`
-  доказывают передачу через воздух.
-- Что подтверждены дальность, скорость или неслышимость сигнала.
-- Что работает на любом оборудовании.
-- Что CRC или SHA-256 заменяют аутентифицированное шифрование.
-
-Показатели из Architecture v1.0 (10–50 м, 5–15 кбит/с и др.) — целевые
-гипотезы до стендовых измерений.
-
-## Роли
-
-- **Agent 1** — архитектура, Acoustic Lab, DSP/PHY, Rust Core, SCNP, mesh,
-  Windows Desktop Lab, Android-приложение и интеграция.
-- **Product Owner** — решения по требованиям, контрактам и приёмке этапов.
+---
 
 ## Лицензия
 
-Не выбрана. До публикации требуется решение Product Owner.
+Лицензия пока **не выбрана**. Код опубликован для просмотра и обсуждения;
+использование, распространение и модификация требуют согласования с автором.
+Это осознанное решение Product Owner, а не забытый файл `LICENSE`.
+
+---
+
+<div align="center">
+
+**SilentNetwork** — потому что иногда единственный доступный канал — это воздух.
+
+</div>

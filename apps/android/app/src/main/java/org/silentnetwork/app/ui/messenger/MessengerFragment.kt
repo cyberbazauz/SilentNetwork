@@ -13,6 +13,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -21,6 +23,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import org.silentnetwork.app.R
 import org.silentnetwork.app.audiolab.audio.AndroidAudioPlayerEngine
+import org.silentnetwork.app.audiolab.chat.ChatMode
 import org.silentnetwork.app.audiolab.chat.ChatSession
 import org.silentnetwork.app.audiolab.chat.ContinuousAudioCapture
 import org.silentnetwork.app.audiolab.datalink.BfskProfile
@@ -50,7 +53,9 @@ class MessengerFragment : Fragment() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-    private val profile: BfskProfile = BfskProfile.DATA_AUDIBLE
+    private var chatMode: ChatMode = ChatMode.DEFAULT
+    private val profile: BfskProfile get() = chatMode.profile
+    private var suppressModeCallback = false
     private var player: AndroidAudioPlayerEngine? = null
     private var capture: ContinuousAudioCapture? = null
     private var chatSession: ChatSession? = null
@@ -112,8 +117,12 @@ class MessengerFragment : Fragment() {
         savedInstanceState?.getString(KEY_DRAFT_MESSAGE)?.let { draft ->
             binding.etMessageInput.setText(draft)
         }
+        savedInstanceState?.getString(KEY_CHAT_MODE)?.let { modeId ->
+            ChatMode.fromId(modeId)?.let { chatMode = it }
+        }
 
         player = AndroidAudioPlayerEngine { requireContext().applicationContext }
+        setupModeSelector()
 
         binding.btnSendMessage.setOnClickListener { sendText() }
         binding.btnAttachFile.setOnClickListener {
@@ -148,6 +157,97 @@ class MessengerFragment : Fragment() {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
     }
+
+    private fun setupModeSelector() {
+        val modes = ChatMode.entries
+        val adapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_item,
+            modes.map { modeLabel(it) }
+        )
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerChatMode.adapter = adapter
+        binding.spinnerChatMode.setSelection(modes.indexOf(chatMode), false)
+        updateModeHint()
+        binding.spinnerChatMode.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    if (suppressModeCallback) return
+                    onModeSelected(modes[position])
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+    }
+
+    private fun onModeSelected(selected: ChatMode) {
+        if (selected == chatMode) {
+            updateModeHint()
+            return
+        }
+        if (busy || playing) {
+            suppressModeCallback = true
+            binding.spinnerChatMode.setSelection(
+                ChatMode.entries.indexOf(chatMode),
+                false
+            )
+            suppressModeCallback = false
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.messenger_mode_busy),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        chatMode = selected
+        updateModeHint()
+        if (capture != null) {
+            // The demodulator is profile-specific: stop the old capture,
+            // drop the old decoder/assembler, and open the stream again with
+            // the new profile.
+            capture?.stop()
+            capture = null
+            chatSession = null
+            startCapture()
+        } else {
+            setStatus(
+                getString(
+                    R.string.messenger_mode_selected_no_capture,
+                    modeLabel(selected)
+                ),
+                Tone.WARNING
+            )
+        }
+    }
+
+    private fun modeLabel(mode: ChatMode): String = getString(
+        when (mode) {
+            ChatMode.NORMAL -> R.string.messenger_mode_normal
+            ChatMode.EXCELLENT -> R.string.messenger_mode_excellent
+            ChatMode.HIGH_FREQ -> R.string.messenger_mode_highfreq
+        }
+    )
+
+    private fun modeSummary(mode: ChatMode): String = getString(
+        when (mode) {
+            ChatMode.NORMAL -> R.string.messenger_mode_normal_summary
+            ChatMode.EXCELLENT -> R.string.messenger_mode_excellent_summary
+            ChatMode.HIGH_FREQ -> R.string.messenger_mode_highfreq_summary
+        }
+    )
+
+    private fun updateModeHint() {
+        if (_binding == null) return
+        binding.tvChatModeHint.text = modeSummary(chatMode)
+    }
+
+    private fun listeningLabel(): String = "${modeLabel(chatMode)} · ${profile.name}"
 
     private fun startCapture() {
         if (capture != null || _binding == null) return
@@ -210,7 +310,7 @@ class MessengerFragment : Fragment() {
         val result = engine.start()
         if (result.isSuccess) {
             setStatus(
-                getString(R.string.messenger_status_listening, profile.name),
+                getString(R.string.messenger_status_listening, listeningLabel()),
                 Tone.LISTENING
             )
         } else {
@@ -469,14 +569,14 @@ class MessengerFragment : Fragment() {
                 val suffix = String.format(Locale.US, "%.1f с", activeDurationS)
                 statusView?.text = "$activeDoneText · $suffix"
                 setStatus(
-                    getString(R.string.messenger_status_listening, profile.name),
+                    getString(R.string.messenger_status_listening, listeningLabel()),
                     Tone.LISTENING
                 )
             }
             stopped -> {
                 statusView?.text = getString(R.string.messenger_tx_stopped)
                 setStatus(
-                    getString(R.string.messenger_status_listening, profile.name),
+                    getString(R.string.messenger_status_listening, listeningLabel()),
                     Tone.LISTENING
                 )
             }
@@ -504,7 +604,7 @@ class MessengerFragment : Fragment() {
                         outgoing = false
                     )
                     setStatus(
-                        getString(R.string.messenger_status_listening, profile.name),
+                        getString(R.string.messenger_status_listening, listeningLabel()),
                         Tone.LISTENING
                     )
                 }
@@ -758,6 +858,7 @@ class MessengerFragment : Fragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putString(KEY_CHAT_MODE, chatMode.id)
         _binding?.let {
             val currentDraft = it.etMessageInput.text?.toString()
             if (!currentDraft.isNullOrEmpty()) {
@@ -781,6 +882,7 @@ class MessengerFragment : Fragment() {
 
     companion object {
         const val KEY_DRAFT_MESSAGE = "org.silentnetwork.app.KEY_DRAFT_MESSAGE"
+        const val KEY_CHAT_MODE = "org.silentnetwork.app.KEY_CHAT_MODE"
         fun newInstance() = MessengerFragment()
     }
 }

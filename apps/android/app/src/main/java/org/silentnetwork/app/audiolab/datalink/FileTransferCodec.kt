@@ -567,33 +567,26 @@ object FileTransferCodec {
                     metric,
                     profile,
                     minPreambleMatches,
-                    from = offset
+                    from = offset,
+                    limit = 32
                 )
             } catch (_: BfskDemodulator.SignalNotFound) {
                 break
             }
 
             var frame: BfskDemodulator.DecodedFrame? = null
-            // `findFrameCandidates` scans the whole remaining recording, so it
-            // also returns preambles of later frames and weaker partial matches
-            // before the real one. The anchor is the earliest candidate with
-            // the best preamble score; the `1010…` ambiguity is two symbols
-            // wide, and a noisy refinement can add one more symbol on each
-            // side.
-            val bestMatches = candidates.maxOf { it.preambleMatches }
-            val anchor = candidates
-                .filter { it.preambleMatches == bestMatches }
-                .minOf { it.sample }
-            val nearby = candidates.filter {
-                it.sample - anchor in 0..(4 * symbolsPerBit)
-            }
-            val failureStart = nearby.first()
+            // Try candidates in ascending sample order. A later frame with a
+            // stronger preamble correlation must not hide an earlier real one;
+            // the `1010…` preamble is periodic, so a phantom start two symbols
+            // early is normal and sync word / length / CRC-16 decide.
+            val ordered = candidates.sortedBy { it.sample }
+            val failureStart = ordered.first()
             var firstError: BfskDemodulator.ReceiverError? = null
             try {
                 frame = BfskDemodulator.decodeCandidates(
                     metric,
                     profile,
-                    nearby,
+                    ordered,
                     maxPayloadBytes = DataLinkCodec.MAX_DATA_PAYLOAD_BYTES,
                     minPreambleMatches = minPreambleMatches
                 )
@@ -1283,9 +1276,10 @@ object FileTransferCodec {
     }
 
     private fun validateDataProfile(profile: BfskProfile) {
-        if (!BfskProfile.dataProfiles().containsKey(profile.name)) {
+        if (!BfskProfile.supportedProfiles().containsKey(profile.name)) {
+            val supported = BfskProfile.supportedProfiles().keys.joinToString(", ")
             throw FileTransferError(
-                "профиль должен быть data-audible или data-robust",
+                "неизвестный профиль '${profile.name}'; поддерживаются: $supported",
                 "profile_invalid"
             )
         }

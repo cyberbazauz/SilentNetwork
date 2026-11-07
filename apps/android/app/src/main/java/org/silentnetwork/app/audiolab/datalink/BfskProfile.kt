@@ -57,9 +57,50 @@ data class BfskProfile(
             amplitude = 0.30
         )
 
+        // Chat modes. Frequencies must stay in sync with
+        // acoustic-lab/snlab/config.py (CHAT_MODES).
+        val CHAT_NORMAL = BfskProfile(
+            name = "chat-normal",
+            markHz = 1200.0,
+            spaceHz = 2200.0,
+            symbolRate = 300.0,
+            amplitude = 0.30
+        )
+        val CHAT_EXCELLENT = BfskProfile(
+            name = "chat-excellent",
+            markHz = 1000.0,
+            spaceHz = 2000.0,
+            symbolRate = 150.0,
+            amplitude = 0.30
+        )
+        val CHAT_HIGH_FREQ = BfskProfile(
+            name = "chat-highfreq",
+            markHz = 16000.0,
+            spaceHz = 17500.0,
+            symbolRate = 100.0,
+            amplitude = 0.30
+        )
+
         fun dataProfiles(): Map<String, BfskProfile> = mapOf(
             DATA_AUDIBLE.name to DATA_AUDIBLE,
             DATA_ROBUST.name to DATA_ROBUST
         )
+
+        fun chatProfiles(): Map<String, BfskProfile> = mapOf(
+            CHAT_NORMAL.name to CHAT_NORMAL,
+            CHAT_EXCELLENT.name to CHAT_EXCELLENT,
+            CHAT_HIGH_FREQ.name to CHAT_HIGH_FREQ
+        )
+
+        /**
+         * Profiles accepted by the shared Frame v1 codecs.
+         *
+         * The transport is identical for data-link and chat profiles; only the
+         * UI that chooses a profile differs. Validators must use this set, not
+         * [dataProfiles] alone, otherwise chat sends are rejected before any
+         * PCM is generated.
+         */
+        fun supportedProfiles(): Map<String, BfskProfile> =
+            dataProfiles() + chatProfiles()
     }
 }

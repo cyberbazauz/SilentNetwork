@@ -33,8 +33,26 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="@string/messenger_profile_fixed"
+            android:layout_marginTop="8dp"
+            android:text="@string/messenger_mode_label"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <Spinner
+            android:id="@+id/spinner_chat_mode"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_input_field"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp" />
+
+        <TextView
+            android:id="@+id/tv_chat_mode_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/messenger_mode_normal_summary"
             android:textColor="@color/text_muted"
             android:textSize="10sp" />
     </LinearLayout>

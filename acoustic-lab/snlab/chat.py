@@ -16,7 +16,9 @@
 * CRC-16 обнаруживает повреждение, но **не аутентифицирует** отправителя;
 * SHA-256 проверяет целостность файла, но не подлинность;
 * успешное декодирование потока не доказывает передачу через воздух;
-* ACK нет: «передано» означает только «воспроизведено в динамик».
+* в режиме ART/1 отправитель ждёт ``STATUS`` с битовой картой и не объявляет
+  доставку без ``complete=1`` и совпавшего SHA-256; без этого режима ACK нет
+  и «передано» означает только «воспроизведено в динамик».
 
 Чат полудуплексный: на время собственного воспроизведения вызывающая сторона
 должна приостановить приём, иначе микрофон услышит собственный динамик.
@@ -55,6 +57,16 @@ from snlab.file_transfer import (
     write_assembled_file,
 )
 from snlab.frame import FRAME_OVERHEAD_BITS, PREAMBLE_BITS, Frame, build_frame
+from snlab.reliable import (
+    ABORT_PROTOCOL_ERROR,
+    PACKET_ABORT,
+    PACKET_STATUS,
+    ReliableReceiver,
+    ReliableTransportError,
+    TransportConfig,
+    TransportPacket,
+)
+from snlab.reliable_chat import is_transport_payload, parse_transport_payload
 from snlab.receiver import (
     IncompleteFrame,
     ReceiverError,
@@ -212,31 +224,26 @@ class StreamingFrameDecoder:
                     view,
                     self.profile,
                     min_preamble_matches=self.min_preamble_matches,
-                    limit=8,
+                    limit=32,
                 )
             except SignalNotFound:
                 break
 
-            best_matches = max(item.preamble_matches for item in candidates)
-            anchor = min(
-                item.sample
-                for item in candidates
-                if item.preamble_matches == best_matches
-            )
-            nearby = [
-                item
-                for item in candidates
-                if 0 <= item.sample - anchor <= 4 * self._samples_per_symbol
-            ]
-            if not nearby:
-                break
-            failure_start = min(item.sample for item in nearby)
+            # Потоковый приём должен разбирать кадры по порядку. Раньше
+            # выбирался кандидат с лучшим совпадением преамбулы, и окно
+            # ±4 символа вокруг него могло не содержать истинного начала:
+            # периодическая преамбула `1010…` даёт кандидата на два символа
+            # раньше, а настоящий старт оказывается дальше окна. Здесь
+            # кандидаты пробуются в порядке возрастания позиции, а CRC-16
+            # остаётся арбитром.
+            ordered = sorted(candidates, key=lambda item: item.sample)
+            failure_start = ordered[0].sample
 
             try:
                 frame = decode_candidates(
                     view,
                     self.profile,
-                    nearby,
+                    ordered,
                     max_payload_bytes=self.max_payload_bytes,
                     min_preamble_matches=self.min_preamble_matches,
                 )
@@ -334,8 +341,81 @@ class FrameFailed:
     at_millis: int
 
 
+@dataclass(frozen=True, slots=True)
+class TransportStarted:
+    """Принят первый MANIFEST передачи ART/1."""
+
+    transfer_id: int
+    session_id: int
+    filename: str | None
+    file_size: int
+    total_chunks: int
+    at_millis: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportProgress:
+    """Приём чанков ART/1: подтверждённая битовая карта."""
+
+    transfer_id: int
+    received_chunks: int
+    total_chunks: int
+    duplicates: int
+    at_millis: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportCompleted:
+    """Блок ART/1 собран, размер и SHA-256 сошлись."""
+
+    transfer_id: int
+    filename: str | None
+    text: str | None
+    file_size: int
+    sha256: str
+    saved_to: str | None
+    at_millis: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportAborted:
+    """Приёмник отверг передачу ART/1."""
+
+    transfer_id: int | None
+    error_type: str
+    message: str
+    at_millis: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportPacketSeen:
+    """Принят STATUS/ABORT, адресованный отправителю на этой стороне."""
+
+    packet: TransportPacket
+    at_millis: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportReplyDue:
+    """Пора воспроизвести STATUS или ABORT приёмника."""
+
+    packet: TransportPacket
+    at_millis: int
+
+
 ChatEvent = (
-    TextReceived | FileStarted | FileProgress | FileCompleted | FileFailed | FrameFailed
+    TextReceived
+    | FileStarted
+    | FileProgress
+    | FileCompleted
+    | FileFailed
+    | FrameFailed
+    | TransportStarted
+    | TransportProgress
+    | TransportCompleted
+    | TransportAborted
+    | TransportPacketSeen
+    | TransportReplyDue
 )
 
 
@@ -354,6 +434,8 @@ class ChatSession:
         output_dir: str | Path | None = None,
         min_preamble_matches: int = ACOUSTIC_MIN_PREAMBLE_MATCHES,
         clock_millis: Callable[[], int] | None = None,
+        enable_transport: bool = False,
+        transport_config: TransportConfig | None = None,
     ) -> None:
         self.profile = profile
         self.output_dir = Path(output_dir) if output_dir is not None else None
@@ -366,6 +448,11 @@ class ChatSession:
         self._assembler: FileAssembler | None = None
         self._announced_transfer_id: int | None = None
         self._completed_transfer_id: int | None = None
+        self._transport = (
+            ReliableReceiver(transport_config) if enable_transport else None
+        )
+        self._transport_announced: tuple[int, int] | None = None
+        self._transport_delivered: tuple[int, int] | None = None
 
     @property
     def received_samples(self) -> int:
@@ -406,8 +493,29 @@ class ChatSession:
         self._decoder.reset()
         self._release_assembler()
 
+    def poll_transport(self, now_millis: int | None = None) -> list[ChatEvent]:
+        """Вернуть ``TransportReplyDue``, если приёмнику пора ответить.
+
+        Вызывать периодически из того же потока, что и :meth:`feed`. Пакет
+        помечается отправленным в момент вызова, поэтому воспроизводить его
+        нужно сразу: потеря статуса восстанавливается следующим раундом.
+        """
+        if self._transport is None:
+            return []
+        now = self._clock() if now_millis is None else now_millis
+        packet = self._transport.poll(now)
+        if packet is None:
+            return []
+        return [TransportReplyDue(packet=packet, at_millis=now)]
+
+    @property
+    def transport_enabled(self) -> bool:
+        return self._transport is not None
+
     def _process_frame(self, frame: StreamFrame) -> list[ChatEvent]:
         now = self._clock()
+        if is_transport_payload(frame.payload):
+            return self._process_transport_packet(frame, now)
         if len(frame.payload) >= 2 and frame.payload[:2] == FT_MAGIC:
             return self._process_file_packet(frame, now)
         try:
@@ -429,6 +537,127 @@ class ChatSession:
                 at_millis=now,
             )
         ]
+
+    def _process_transport_packet(
+        self, frame: StreamFrame, now: int
+    ) -> list[ChatEvent]:
+        if self._transport is None:
+            return [
+                FrameFailed(
+                    error_type="transport_disabled",
+                    message=(
+                        "принят пакет ART/1, но надёжная доставка в сессии "
+                        "не включена"
+                    ),
+                    at_millis=now,
+                )
+            ]
+        try:
+            packet = parse_transport_payload(frame.payload)
+        except ReliableTransportError as exc:
+            return [
+                FrameFailed(
+                    error_type=getattr(exc, "error_type", "packet_invalid"),
+                    message=str(exc),
+                    at_millis=now,
+                )
+            ]
+
+        events: list[ChatEvent] = []
+        if packet.packet_type in (PACKET_STATUS, PACKET_ABORT):
+            # STATUS адресован отправителю на этой стороне: приёмник ART/1
+            # его игнорирует. ABORT обрабатывают обе стороны.
+            events.append(TransportPacketSeen(packet=packet, at_millis=now))
+
+        progress = self._transport.handle_packet(packet, now)
+        if progress.event in ("aborted", "ignored"):
+            if progress.event == "aborted":
+                if progress.abort is not None:
+                    events.append(
+                        TransportReplyDue(packet=progress.abort, at_millis=now)
+                    )
+                events.append(
+                    TransportAborted(
+                        transfer_id=packet.transfer_id,
+                        error_type=progress.error_type or "protocol_error",
+                        message=progress.message,
+                        at_millis=now,
+                    )
+                )
+            return events
+
+        manifest = self._transport.manifest
+        session = (self._transport.session_id, packet.transfer_id)
+        if (
+            manifest is not None
+            and self._transport_announced != session
+        ):
+            self._transport_announced = session
+            events.append(
+                TransportStarted(
+                    transfer_id=packet.transfer_id,
+                    session_id=packet.session_id,
+                    filename=self._transport.filename,
+                    file_size=manifest.total_size,
+                    total_chunks=manifest.total_chunks,
+                    at_millis=now,
+                )
+            )
+        if progress.event in ("progress", "duplicate", "manifest", "meta", "session_replaced"):
+            events.append(
+                TransportProgress(
+                    transfer_id=packet.transfer_id,
+                    received_chunks=progress.received,
+                    total_chunks=progress.total,
+                    duplicates=self._transport.duplicates,
+                    at_millis=now,
+                )
+            )
+
+        if (
+            progress.event == "completed"
+            and progress.delivered is not None
+            and self._transport_delivered != session
+        ):
+            self._transport_delivered = session
+            content = bytes(progress.delivered)
+            filename = self._transport.filename
+            text: str | None = None
+            saved_to: str | None = None
+            if filename is None:
+                try:
+                    text = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    text = None
+            elif self.output_dir is not None:
+                try:
+                    target_dir = self.output_dir / (
+                        f"art-{now}-{packet.transfer_id}"
+                    )
+                    saved_to = str(
+                        write_assembled_file(target_dir, filename, content)
+                    )
+                except Exception as exc:  # noqa: BLE001 - ошибку показываем событием
+                    events.append(
+                        TransportAborted(
+                            transfer_id=packet.transfer_id,
+                            error_type="output_error",
+                            message=str(exc),
+                            at_millis=now,
+                        )
+                    )
+            events.append(
+                TransportCompleted(
+                    transfer_id=packet.transfer_id,
+                    filename=filename,
+                    text=text,
+                    file_size=len(content),
+                    sha256=hashlib.sha256(content).hexdigest(),
+                    saved_to=saved_to,
+                    at_millis=now,
+                )
+            )
+        return events
 
     def _process_file_packet(
         self, frame: StreamFrame, now: int
@@ -787,6 +1016,12 @@ __all__ = [
     "StreamFrame",
     "StreamingFrameDecoder",
     "TextReceived",
+    "TransportAborted",
+    "TransportCompleted",
+    "TransportPacketSeen",
+    "TransportProgress",
+    "TransportReplyDue",
+    "TransportStarted",
     "encode_file_message",
     "encode_text_message",
     "validate_chat_text",

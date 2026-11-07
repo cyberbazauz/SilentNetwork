@@ -140,6 +140,22 @@ class BfskProfile:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ChatMode:
+    """Пользовательский режим акустического чата.
+
+    Режим — это не обещание слышимости или дальности, а набор параметров
+    модуляции. Название «Неслышимый» означает только попытку уйти в верхний
+    диапазон; неслышимость зависит от устройства, возраста слушателя и
+    громкости и не гарантируется.
+    """
+
+    mode_id: str
+    label: str
+    summary: str
+    profile: BfskProfile
+
+
 PROFILE_BFSK_16K = BfskProfile(name="bfsk-16k", mark_hz=16_000.0, space_hz=17_000.0)
 PROFILE_BFSK_18K = BfskProfile(name="bfsk-18k", mark_hz=18_000.0, space_hz=19_000.0)
 
@@ -177,6 +193,86 @@ DATA_PROFILES: Mapping[str, BfskProfile] = {
     for profile in (PROFILE_DATA_AUDIBLE, PROFILE_DATA_ROBUST)
 }
 
+# Режимы чата. Частоты выбраны по уже известным данным проекта, а не по
+# «красивым» числам:
+# * 1 кГц подтверждён реальной записью телефона, а 18–19 кГц в той же записи
+#   был практически пустым (−103.18 dBFS), поэтому надёжный режим остаётся
+#   в слышимом диапазоне;
+# * 16–18 кГц — более совместимый из экспериментальных верхних диапазонов,
+#   но многие динамики и микрофоны режут его фильтрами;
+# * 20–22 кГц сознательно не используется: слишком высокая зависимость от
+#   аппаратуры и почти нет запаса по Найквисту при 44.1 кГц.
+PROFILE_CHAT_NORMAL = BfskProfile(
+    name="chat-normal",
+    mark_hz=1_200.0,
+    space_hz=2_200.0,
+    symbol_rate=300.0,
+    amplitude=0.30,
+)
+PROFILE_CHAT_EXCELLENT = BfskProfile(
+    name="chat-excellent",
+    mark_hz=1_000.0,
+    space_hz=2_000.0,
+    symbol_rate=150.0,
+    amplitude=0.30,
+)
+PROFILE_CHAT_HIGHFREQ = BfskProfile(
+    name="chat-highfreq",
+    mark_hz=16_000.0,
+    space_hz=17_500.0,
+    symbol_rate=100.0,
+    amplitude=0.30,
+)
+
+CHAT_PROFILES: Mapping[str, BfskProfile] = {
+    profile.name: profile
+    for profile in (
+        PROFILE_CHAT_NORMAL,
+        PROFILE_CHAT_EXCELLENT,
+        PROFILE_CHAT_HIGHFREQ,
+    )
+}
+
+CHAT_MODE_NORMAL = ChatMode(
+    mode_id="normal",
+    label="Нормальный",
+    summary=(
+        "Слышимый диапазон 1200/2200 Гц, 300 бод. "
+        "Основной режим: та же скорость, что у data-audible."
+    ),
+    profile=PROFILE_CHAT_NORMAL,
+)
+CHAT_MODE_EXCELLENT = ChatMode(
+    mode_id="excellent",
+    label="Отличный",
+    summary=(
+        "Слышимый диапазон 1000/2000 Гц, 150 бод. "
+        "Медленнее, но с большим запасом по помехоустойчивости."
+    ),
+    profile=PROFILE_CHAT_EXCELLENT,
+)
+CHAT_MODE_HIGHFREQ = ChatMode(
+    mode_id="highfreq",
+    label="Неслышимый на высоких частотах",
+    summary=(
+        "Экспериментально: 16 000/17 500 Гц, 100 бод. "
+        "Не гарантирует неслышимость: полосу должны поддерживать "
+        "динамик и микрофон."
+    ),
+    profile=PROFILE_CHAT_HIGHFREQ,
+)
+
+CHAT_MODES: Mapping[str, ChatMode] = {
+    mode.mode_id: mode
+    for mode in (
+        CHAT_MODE_NORMAL,
+        CHAT_MODE_EXCELLENT,
+        CHAT_MODE_HIGHFREQ,
+    )
+}
+
+DEFAULT_CHAT_MODE = CHAT_MODE_NORMAL.mode_id
+
 DEFAULT_PROFILE = PROFILE_BFSK_18K
 
 
@@ -189,3 +285,17 @@ def get_profile(name: str) -> BfskProfile:
         raise ProfileError(
             f"неизвестный профиль: {name!r}; доступны: {available}"
         ) from None
+
+
+def get_chat_mode(key: str) -> ChatMode:
+    """Вернуть режим чата по id или отображаемому названию."""
+    if not isinstance(key, str) or not key.strip():
+        raise ProfileError("режим чата должен быть непустой строкой")
+    mode = CHAT_MODES.get(key)
+    if mode is not None:
+        return mode
+    for candidate in CHAT_MODES.values():
+        if candidate.label == key:
+            return candidate
+    available = ", ".join(f"{mode.mode_id} ({mode.label})" for mode in CHAT_MODES.values())
+    raise ProfileError(f"неизвестный режим чата: {key!r}; доступны: {available}")

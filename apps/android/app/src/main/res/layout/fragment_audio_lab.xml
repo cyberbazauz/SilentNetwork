@@ -409,7 +409,6 @@
                         android:layout_height="42dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_button_gradient"
-                        android:enabled="false"
                         android:text="@string/datalink_btn_play"
                         android:textAllCaps="false"
                         android:textColor="@color/text_on_accent"

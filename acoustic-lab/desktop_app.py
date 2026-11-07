@@ -46,6 +46,8 @@ try:
     from snlab import desktop, playback
     from snlab import file_transfer
     from snlab import file_transfer_desktop as file_desktop
+    from snlab import reliable as reliable_core
+    from snlab import reliable_chat as reliable_chat
 except ImportError as _dependency_exc:  # pragma: no cover - зависит от окружения
     audio = None  # type: ignore[assignment]
     chat_core = None  # type: ignore[assignment]
@@ -54,6 +56,8 @@ except ImportError as _dependency_exc:  # pragma: no cover - зависит от
     playback = None  # type: ignore[assignment]
     file_transfer = None  # type: ignore[assignment]
     file_desktop = None  # type: ignore[assignment]
+    reliable_core = None  # type: ignore[assignment]
+    reliable_chat = None  # type: ignore[assignment]
     _DEPENDENCY_ERROR: Exception | None = _dependency_exc
 else:
     _DEPENDENCY_ERROR = None
@@ -158,6 +162,17 @@ def _configure_style(root: Any) -> None:
                     font=("Segoe UI", 13, "bold"))
     style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT)
     style.configure("CardMuted.TLabel", background=COLOR_CARD, foreground=COLOR_MUTED)
+    style.configure(
+        "Card.TCheckbutton",
+        background=COLOR_CARD,
+        foreground=COLOR_TEXT,
+        font=("Segoe UI", 10),
+    )
+    style.map(
+        "Card.TCheckbutton",
+        background=[("active", COLOR_CARD)],
+        foreground=[("disabled", "#A0AAB8")],
+    )
     style.configure("Value.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT,
                     font=("Segoe UI", 11, "bold"))
     style.configure("Field.TLabel", background=COLOR_CARD, foreground=COLOR_MUTED,
@@ -331,12 +346,21 @@ class DesktopApp:
 
         self.chat_input_devices: list[Any] = []
         self.chat_selected_input: Any | None = None
-        self.chat_profile_var = tk.StringVar(value="data-audible")
+        self.chat_modes = (
+            data_desktop.CHAT_MODE_LABELS
+            if data_desktop is not None
+            else ("Нормальный", "Отличный", "Неслышимый на высоких частотах")
+        )
+        self.chat_mode_var = tk.StringVar(value=self.chat_modes[0])
+        self._chat_active_mode_label = self.chat_mode_var.get()
+        self.chat_reliable_var = tk.BooleanVar(value=False)
         self.chat_text_var = tk.StringVar(value="")
         self.chat_session: Any | None = None
         self.chat_capture: Any | None = None
         self.chat_playing = False
         self.chat_encoding = False
+        self.chat_reliable_controller: Any | None = None
+        self._chat_reliable_waiting_reported = False
         self._chat_play_queue: queue.Queue[tuple[str, Any]] | None = None
         self._chat_encode_queue: queue.Queue[tuple[str, Any]] | None = None
         self._chat_event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -2489,21 +2513,20 @@ class DesktopApp:
         body.columnconfigure(1, weight=1)
         body.columnconfigure(3, weight=1)
 
-        ttk.Label(body, text="Профиль", style="Field.TLabel").grid(
+        ttk.Label(body, text="Режим", style="Field.TLabel").grid(
             row=0, column=0, sticky="w", padx=(0, 8)
         )
-        self.chat_profile_box = ttk.Combobox(
+        self.chat_mode_box = ttk.Combobox(
             body,
-            textvariable=self.chat_profile_var,
-            values=(
-                sorted(data_desktop.DATA_PROFILE_NAMES)
-                if data_desktop is not None
-                else ["data-audible", "data-robust"]
-            ),
+            textvariable=self.chat_mode_var,
+            values=self.chat_modes,
             state="readonly",
-            width=14,
+            width=34,
         )
-        self.chat_profile_box.grid(row=0, column=1, sticky="ew", padx=(0, 14))
+        self.chat_mode_box.grid(row=0, column=1, sticky="ew", padx=(0, 14))
+        self.chat_mode_box.bind(
+            "<<ComboboxSelected>>", self._on_chat_mode_selected
+        )
 
         ttk.Label(body, text="Микрофон", style="Field.TLabel").grid(
             row=0, column=2, sticky="w", padx=(0, 8)
@@ -2514,8 +2537,38 @@ class DesktopApp:
             "<<ComboboxSelected>>", self._on_chat_input_selected
         )
 
+        default_mode = (
+            data_desktop.get_chat_mode(self.chat_mode_var.get())
+            if data_desktop is not None
+            else None
+        )
+        self.chat_mode_hint = ttk.Label(
+            body,
+            text=default_mode.summary if default_mode is not None else "",
+            style="CardMuted.TLabel",
+            wraplength=self._px(760),
+            justify="left",
+        )
+        self.chat_mode_hint.grid(
+            row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0)
+        )
+
+        self.chat_reliable_check = ttk.Checkbutton(
+            body,
+            text=(
+                "Подтверждать доставку (ART/1): отправитель ждёт STATUS "
+                "и повторяет только отсутствующие чанки"
+            ),
+            variable=self.chat_reliable_var,
+            command=self._on_chat_reliable_toggled,
+            style="Card.TCheckbutton",
+        )
+        self.chat_reliable_check.grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(8, 0)
+        )
+
         buttons = ttk.Frame(body, style="Card.TFrame")
-        buttons.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(10, 6))
+        buttons.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(10, 6))
         buttons.columnconfigure(0, weight=1)
         buttons.columnconfigure(1, weight=1)
         ttk.Button(
@@ -2539,12 +2592,12 @@ class DesktopApp:
             wraplength=self._px(760),
             justify="left",
         )
-        self.chat_status_label.grid(row=2, column=0, columnspan=4, sticky="ew")
+        self.chat_status_label.grid(row=4, column=0, columnspan=4, sticky="ew")
 
         log_card, log_body = self._card(
             parent,
             "Лог чата",
-            "Приём подтверждается только CRC-16 кадра; ACK, шифрования и доставки нет",
+            "ART/1 подтверждает доставку битовой картой и SHA-256, но не подлинность отправителя",
         )
         log_card.grid(row=1, column=0, sticky="nsew")
         log_body.columnconfigure(0, weight=1)
@@ -2613,7 +2666,8 @@ class DesktopApp:
             log_body,
             text=(
                 "Полудуплекс: во время собственного звука приём приостанавливается. "
-                "Файл до 8192 байт звучит несколько минут; подтверждения доставки нет."
+                "Файл до 8192 байт звучит несколько минут. В режиме ART/1 доставка "
+                "подтверждается битовой картой и SHA-256, но не аутентифицируется."
             ),
             style="CardMuted.TLabel",
             wraplength=self._px(760),
@@ -2670,6 +2724,62 @@ class DesktopApp:
             )
         self._update_chat_controls()
 
+    def _on_chat_mode_selected(self, _event: Any | None = None) -> None:
+        if data_desktop is None:
+            return
+        try:
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_set_status(f"Режим не выбран: {exc}")
+            return
+        hint = getattr(self, "chat_mode_hint", None)
+        if hint is not None:
+            hint.configure(text=mode.summary)
+
+        if self.chat_playing or self.chat_encoding or self.chat_reliable_controller:
+            self.chat_mode_var.set(self._chat_active_mode_label)
+            self._chat_set_status(
+                "Режим нельзя менять во время кодирования, звука или "
+                "передачи ART/1. Дождитесь окончания."
+            )
+            return
+        if self.chat_capture is not None:
+            self.stop_chat_listening(
+                reason=f"Режим изменён на «{mode.label}»: перезапуск приёма."
+            )
+            self.start_chat_listening()
+        else:
+            self._chat_set_status(f"Выбран режим «{mode.label}».")
+
+    def _on_chat_reliable_toggled(self) -> None:
+        enabled = bool(self.chat_reliable_var.get())
+        if self.chat_playing or self.chat_encoding or self.chat_reliable_controller:
+            self.chat_reliable_var.set(not enabled)
+            self._chat_set_status(
+                "Настройку ART/1 нельзя менять во время звука или передачи."
+            )
+            return
+        if self.chat_capture is not None:
+            self.stop_chat_listening(
+                reason=(
+                    "ART/1 включён: перезапуск приёма."
+                    if enabled
+                    else "ART/1 выключен: перезапуск приёма."
+                )
+            )
+            self.start_chat_listening()
+            return
+        if enabled:
+            self._chat_set_status(
+                "ART/1 включён. Включите прослушивание микрофона: без STATUS "
+                "доставка не подтверждается."
+            )
+        else:
+            self._chat_set_status(
+                "ART/1 выключен: звук передаётся без подтверждения доставки."
+            )
+        self._update_chat_controls()
+
     def _on_chat_input_selected(self, _event: Any | None = None) -> None:
         if self.chat_capture is not None:
             return
@@ -2708,15 +2818,31 @@ class DesktopApp:
             self._chat_set_status("Сначала выберите микрофон.")
             return
         try:
-            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
         except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
-            self._chat_set_status(f"Профиль не выбран: {exc}")
+            self._chat_set_status(f"Режим не выбран: {exc}")
             return
+        profile = mode.profile
+        self._chat_active_mode_label = mode.label
 
         output_dir = self.results_dir / "chat-received"
+        reliable = bool(self.chat_reliable_var.get())
+        transport_config = None
+        if reliable:
+            if reliable_chat is None or reliable_core is None:
+                self._chat_set_status(
+                    "ART/1 недоступен: модуль надёжной доставки не загрузился."
+                )
+                return
+            transport_config = reliable_chat.config_for_profile(profile)
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
-            session = chat_core.ChatSession(profile, output_dir=output_dir)
+            session = chat_core.ChatSession(
+                profile,
+                output_dir=output_dir,
+                enable_transport=reliable,
+                transport_config=transport_config,
+            )
             capture = audio.ContinuousCapture(
                 device=self.chat_selected_input,
                 sample_rate=profile.sample_rate,
@@ -2741,13 +2867,17 @@ class DesktopApp:
             return
         self.chat_capture = capture
         device = self.chat_selected_input
+        delivery = "ART/1: доставка подтверждается" if reliable else "без ART/1"
         self._chat_log(
             f"[{self._chat_time()}] Слушаю [{device.index}] {device.name} · "
-            f"{profile.name}",
+            f"режим «{mode.label}» · {profile.name} "
+            f"({profile.mark_hz:.0f}/{profile.space_hz:.0f} Гц, "
+            f"{profile.symbol_rate:.0f} бод) · {delivery}",
             "system",
         )
         self._chat_set_status(
-            "Слушаю микрофон. Отправьте сообщение или файл — звук начнётся сразу."
+            f"Слушаю микрофон в режиме «{mode.label}». "
+            "Отправьте сообщение или файл — звук начнётся сразу."
         )
         self._update_chat_controls()
         self.root.after(100, self._poll_chat_events)
@@ -2757,6 +2887,17 @@ class DesktopApp:
         session = self.chat_session
         self.chat_capture = None
         self.chat_session = None
+        if self.chat_reliable_controller is not None:
+            try:
+                self.chat_reliable_controller.stop()
+            except Exception:  # noqa: BLE001 - отмена не должна ломать остановку
+                pass
+            self.chat_reliable_controller = None
+            self._chat_log(
+                f"[{self._chat_time()}] Передача ART/1 прервана: "
+                "прослушивание остановлено.",
+                "error",
+            )
         if capture is not None:
             try:
                 capture.stop()
@@ -2801,8 +2942,34 @@ class DesktopApp:
 
     def _poll_chat_events(self) -> None:
         self._consume_chat_queue()
+        self._poll_chat_transport()
         if self.chat_capture is not None or not self._chat_event_queue.empty():
             self.root.after(100, self._poll_chat_events)
+
+    def _poll_chat_transport(self) -> None:
+        """Ответить STATUS на принятый раунд и продвинуть таймеры ART/1."""
+        if self.chat_playing or self.chat_encoding:
+            return
+        session = self.chat_session
+        if (
+            session is not None
+            and getattr(session, "transport_enabled", False)
+            and self.chat_capture is not None
+            and self.engine is not None
+            and self.selected_device is not None
+        ):
+            try:
+                events = session.poll_transport()
+            except Exception as exc:  # noqa: BLE001 - сбой приёма показываем
+                self._chat_log(
+                    f"[{self._chat_time()}] Ошибка ART/1: "
+                    f"{type(exc).__name__}: {exc}",
+                    "error",
+                )
+            else:
+                for event in events:
+                    self._handle_chat_event(event)
+        self._chat_reliable_tick()
 
     def _consume_chat_queue(self) -> None:
         while True:
@@ -2880,6 +3047,236 @@ class DesktopApp:
                 f"[{stamp}] Кадр отброшен {event.error_type}: {event.message}",
                 "error",
             )
+        elif isinstance(event, chat_core.TransportStarted):
+            kind = event.filename or "текст"
+            self._chat_log(
+                f"[{stamp}] ART/1: приём {kind}, {event.file_size} байт, "
+                f"{event.total_chunks} чанков.",
+                "in",
+            )
+            self._chat_set_status(
+                f"ART/1: принимаю {kind}: 0/{event.total_chunks} чанков."
+            )
+        elif isinstance(event, chat_core.TransportProgress):
+            self._chat_set_status(
+                f"ART/1: {event.received_chunks}/{event.total_chunks} чанков, "
+                f"повторов {event.duplicates}."
+            )
+        elif isinstance(event, chat_core.TransportCompleted):
+            if event.text is not None:
+                self._chat_log(
+                    f"[{stamp}] Принято (ART/1): {event.text}", "in"
+                )
+            else:
+                tail = f" Сохранён: {event.saved_to}" if event.saved_to else ""
+                self._chat_log(
+                    f"[{stamp}] ART/1: файл {event.filename}, "
+                    f"{event.file_size} байт, SHA-256 {event.sha256[:16]}…{tail}",
+                    "in",
+                )
+            self._chat_set_status(
+                "ART/1: доставка подтверждена битовой картой и SHA-256. "
+                "Подлинность отправителя не проверялась."
+            )
+        elif isinstance(event, chat_core.TransportAborted):
+            self._chat_log(
+                f"[{stamp}] ART/1 прерван {event.error_type}: {event.message}",
+                "error",
+            )
+            self._chat_set_status(f"ART/1 прерван: {event.error_type}.")
+        elif isinstance(event, chat_core.TransportPacketSeen):
+            controller = self.chat_reliable_controller
+            if controller is None:
+                self._chat_log(
+                    f"[{stamp}] ART/1: принят {event.packet.type_name} "
+                    "чужой передачи — игнорирую.",
+                    "system",
+                )
+                return
+            try:
+                action = controller.handle_packet(event.packet)
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                self._chat_reliable_fail(
+                    f"STATUS не обработан: {type(exc).__name__}: {exc}"
+                )
+                return
+            self._chat_reliable_handle(action)
+        elif isinstance(event, chat_core.TransportReplyDue):
+            self._chat_play_reply(event.packet)
+
+    # ------------------------------------------------------------ ART/1
+
+    def _chat_reliable_available(self) -> bool:
+        if reliable_chat is None or reliable_core is None:
+            self._chat_set_status(
+                "ART/1 недоступен: модуль надёжной доставки не загрузился."
+            )
+            return False
+        return True
+
+    def _chat_reliable_require_channel(self) -> bool:
+        if self.chat_capture is None:
+            self._chat_set_status(
+                "Включите прослушивание микрофона: без приёма STATUS доставка "
+                "не подтверждается."
+            )
+            return False
+        if self.engine is None or self.selected_device is None:
+            self._chat_set_status(
+                "Динамик не выбран. Откройте вкладку «Устройства»."
+            )
+            return False
+        return True
+
+    def _chat_start_reliable(
+        self, data: bytes, *, filename: str | None = None
+    ) -> None:
+        if not self._chat_reliable_available():
+            return
+        if not self._chat_reliable_require_channel():
+            return
+        try:
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_set_status(f"Режим не выбран: {exc}")
+            return
+        transfer_id = secrets.randbelow(255) + 1
+        try:
+            controller = reliable_chat.ReliableSendController(
+                data,
+                transfer_id,
+                config=reliable_chat.config_for_profile(mode.profile),
+                filename=filename,
+            )
+            action = controller.start()
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_set_status(
+                f"ART/1 не начат: {type(exc).__name__}: {exc}"
+            )
+            return
+        self.chat_reliable_controller = controller
+        self._chat_reliable_waiting_reported = False
+        label = filename or "текст"
+        self._chat_log(
+            f"[{self._chat_time()}] ART/1: передача {label}, "
+            f"{len(data)} байт, {controller.total_chunks} чанков, "
+            f"профиль {mode.profile.name}.",
+            "out",
+        )
+        self._chat_reliable_handle(action)
+
+    def _chat_reliable_tick(self) -> None:
+        controller = self.chat_reliable_controller
+        if controller is None or self.chat_playing or self.chat_encoding:
+            return
+        try:
+            action = controller.tick()
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_reliable_fail(
+                f"таймер передачи: {type(exc).__name__}: {exc}"
+            )
+            return
+        self._chat_reliable_handle(action)
+
+    def _chat_reliable_handle(self, action: Any) -> None:
+        if self.chat_reliable_controller is None:
+            return
+        if action.kind == reliable_chat.ACTION_ROUND:
+            outbound = action.outbound
+            if outbound is None:  # pragma: no cover - защита контракта
+                self._chat_reliable_fail("контроллер не вернул раунд")
+                return
+            try:
+                mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+                audio = reliable_chat.encode_transport_round(
+                    outbound, mode.profile
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+                self._chat_reliable_fail(
+                    f"кодирование раунда: {type(exc).__name__}: {exc}"
+                )
+                return
+            self._chat_reliable_waiting_reported = False
+            data_count = len(outbound.data_seqs)
+            self._chat_log(
+                f"[{self._chat_time()}] ART/1: раунд {outbound.round}, "
+                f"{len(outbound.packets)} кадров ({data_count} DATA), "
+                f"звук {audio.duration_s:.1f} с.",
+                "system",
+            )
+            self._chat_set_status(
+                f"ART/1: раунд {outbound.round} — {data_count} новых или "
+                f"повторных чанков, звук {audio.duration_s:.1f} с."
+            )
+            self._start_chat_playback(audio)
+            return
+        if action.kind == reliable_chat.ACTION_DONE:
+            progress = action.progress
+            rounds = progress.rounds_sent if progress is not None else 0
+            frames = progress.data_frames_sent if progress is not None else 0
+            repeats = (
+                progress.retransmitted_frames if progress is not None else 0
+            )
+            self._chat_log(
+                f"[{self._chat_time()}] ART/1: доставка подтверждена "
+                f"(раундов {rounds}, кадров DATA {frames}, повторов {repeats}, "
+                "SHA-256 сошёлся).",
+                "system",
+            )
+            self._chat_set_status(
+                "ART/1: приёмник подтвердил все чанки и SHA-256. "
+                "Подлинность отправителя не проверялась."
+            )
+            self.chat_reliable_controller = None
+            self._chat_reliable_waiting_reported = False
+            self._update_chat_controls()
+            return
+        if action.kind == reliable_chat.ACTION_FAILED:
+            error_type = action.error_type or "transfer_failed"
+            self._chat_reliable_fail(f"{error_type}: {action.message}")
+            return
+        if action.kind == reliable_chat.ACTION_WAITING:
+            if not self._chat_reliable_waiting_reported:
+                self._chat_reliable_waiting_reported = True
+                self._chat_set_status(
+                    "ART/1: раунд прозвучал, ожидаю STATUS от приёмника…"
+                )
+
+    def _chat_reliable_fail(self, text: str) -> None:
+        self._chat_log(f"[{self._chat_time()}] ART/1: {text}", "error")
+        self._chat_set_status(f"ART/1 не завершён: {text}")
+        self.chat_reliable_controller = None
+        self._chat_reliable_waiting_reported = False
+        self._update_chat_controls()
+
+    def _chat_play_reply(self, packet: Any) -> None:
+        if reliable_chat is None:
+            return
+        if self.chat_playing or self.chat_encoding:
+            self._chat_log(
+                f"[{self._chat_time()}] ART/1: ответ {packet.type_name} "
+                "пропущен — занят звук.",
+                "error",
+            )
+            return
+        if not self._chat_reliable_require_channel():
+            return
+        try:
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+            audio = reliable_chat.encode_transport_reply(packet, mode.profile)
+        except Exception as exc:  # noqa: BLE001 - ошибку показываем в UI
+            self._chat_log(
+                f"[{self._chat_time()}] ART/1: ответ не собран: "
+                f"{type(exc).__name__}: {exc}",
+                "error",
+            )
+            return
+        self._chat_log(
+            f"[{self._chat_time()}] ART/1: ответ {packet.type_name}, "
+            f"{audio.duration_s:.1f} с.",
+            "system",
+        )
+        self._start_chat_playback(audio)
 
     def _chat_time(self) -> str:
         return time.strftime("%H:%M:%S")
@@ -2900,9 +3297,14 @@ class DesktopApp:
         widget.see("end")
 
     def _chat_can_send(self) -> bool:
-        if self.chat_playing or self.chat_encoding:
+        if (
+            self.chat_playing
+            or self.chat_encoding
+            or self.chat_reliable_controller is not None
+        ):
             self._chat_set_status(
-                "Идёт звук; дождитесь окончания — чат полудуплексный."
+                "Идёт звук или передача ART/1; дождитесь окончания — "
+                "чат полудуплексный."
             )
             return False
         if self.selected_device is None:
@@ -2922,9 +3324,31 @@ class DesktopApp:
         if not self._chat_can_send():
             return
         text = self.chat_text_var.get()
+        if self.chat_reliable_var.get():
+            if not self._chat_reliable_available():
+                return
+            data = text.encode("utf-8")
+            if not data:
+                self._chat_set_status("Сообщение не отправлено: пустой текст.")
+                return
+            if data[:2] == b"SF":
+                self._chat_set_status(
+                    "Сообщение не отправлено: текст не может начинаться с SF."
+                )
+                return
+            if len(data) > reliable_core.MAX_MESSAGE_BYTES:
+                self._chat_set_status(
+                    f"Сообщение не отправлено: {len(data)} байт больше лимита "
+                    f"ART/1 {reliable_core.MAX_MESSAGE_BYTES} байт."
+                )
+                return
+            self.chat_text_var.set("")
+            self._chat_log(f"[{self._chat_time()}] Вы: {text}", "out")
+            self._chat_start_reliable(data)
+            return
         try:
-            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
-            message = chat_core.encode_text_message(text, profile)
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+            message = chat_core.encode_text_message(text, mode.profile)
         except Exception as exc:  # noqa: BLE001 - ошибку показываем в статусе
             self._chat_set_status(f"Сообщение не отправлено: {exc}")
             return
@@ -2956,11 +3380,28 @@ class DesktopApp:
                 f"{file_transfer.MAX_FILE_BYTES} байт."
             )
             return
-        try:
-            profile = data_desktop.get_data_profile(self.chat_profile_var.get())
-        except Exception as exc:  # noqa: BLE001
-            self._chat_set_status(f"Профиль не выбран: {exc}")
+        if self.chat_reliable_var.get():
+            if not self._chat_reliable_available():
+                return
+            if len(data) > reliable_core.MAX_MESSAGE_BYTES:
+                self._chat_set_status(
+                    f"Файл {len(data)} байт больше лимита ART/1 "
+                    f"{reliable_core.MAX_MESSAGE_BYTES} байт."
+                )
+                return
+            self._chat_log(
+                f"[{self._chat_time()}] Вы: файл {source.name} "
+                f"({len(data)} байт) — ART/1",
+                "out",
+            )
+            self._chat_start_reliable(data, filename=source.name)
             return
+        try:
+            mode = data_desktop.get_chat_mode(self.chat_mode_var.get())
+        except Exception as exc:  # noqa: BLE001
+            self._chat_set_status(f"Режим не выбран: {exc}")
+            return
+        profile = mode.profile
         transfer_id = secrets.randbelow(255) + 1
         self.chat_encoding = True
         self._chat_encode_queue = queue.Queue()
@@ -3090,10 +3531,16 @@ class DesktopApp:
         self._update_chat_controls()
 
     def request_chat_stop(self) -> None:
-        if self.engine is None or not self.chat_playing:
+        stopped = False
+        if self.engine is not None and self.chat_playing:
+            self._chat_set_status("Останавливаю звук…")
+            self.engine.stop()
+            stopped = True
+        if self.chat_reliable_controller is not None:
+            self._chat_reliable_fail("отменено пользователем")
+            stopped = True
+        if not stopped:
             return
-        self._chat_set_status("Останавливаю звук…")
-        self.engine.stop()
 
     def _update_chat_controls(self) -> None:
         listen = getattr(self, "chat_listen_button", None)
@@ -3104,7 +3551,8 @@ class DesktopApp:
                 )
             else:
                 listen.configure(text="Слушать микрофон", style="Accent.TButton")
-        busy = self.chat_playing or self.chat_encoding
+        transfer = self.chat_reliable_controller is not None
+        busy = self.chat_playing or self.chat_encoding or transfer
         send = getattr(self, "chat_send_button", None)
         if send is not None:
             send.configure(state="disabled" if busy else "normal")
@@ -3116,14 +3564,28 @@ class DesktopApp:
             stop.configure(
                 state=(
                     "normal"
-                    if self.chat_playing and self.engine is not None
+                    if (
+                        (self.chat_playing and self.engine is not None)
+                        or transfer
+                    )
                     else "disabled"
                 )
             )
+        reliable_check = getattr(self, "chat_reliable_check", None)
+        if reliable_check is not None:
+            reliable_check.configure(
+                state=(
+                    "disabled"
+                    if busy or reliable_chat is None
+                    else "normal"
+                )
+            )
+        # Режим можно менять и во время прослушивания: тогда захват
+        # перезапускается с новым профилем. Микрофон менять на лету нельзя.
+        mode_box = getattr(self, "chat_mode_box", None)
+        if mode_box is not None:
+            mode_box.configure(state="readonly")
         state = "disabled" if self.chat_capture is not None else "readonly"
-        profile_box = getattr(self, "chat_profile_box", None)
-        if profile_box is not None:
-            profile_box.configure(state=state)
         input_box = getattr(self, "chat_input_box", None)
         if input_box is not None:
             input_box.configure(state=state)

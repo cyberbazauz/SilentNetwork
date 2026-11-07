@@ -204,7 +204,16 @@
     <string name="messenger_file_read_error">Не удалось прочитать файл</string>
     <string name="messenger_pick_file">Выбрать файл для передачи</string>
     <string name="messenger_saved_to">Сохранено: %1$s</string>
-    <string name="messenger_profile_fixed">Профиль: data-audible · 1200/2200 Гц · 300 бод</string>
+    <string name="messenger_mode_label">Режим передачи</string>
+    <string name="messenger_mode_normal">Нормальный</string>
+    <string name="messenger_mode_excellent">Отличный</string>
+    <string name="messenger_mode_highfreq">Неслышимый на высоких частотах</string>
+    <string name="messenger_mode_normal_summary">1200/2200 Гц · 300 бод. Основной режим, как data-audible.</string>
+    <string name="messenger_mode_excellent_summary">1000/2000 Гц · 150 бод. Медленнее, но устойчивее к помехам.</string>
+    <string name="messenger_mode_highfreq_summary">16 000/17 500 Гц · 100 бод. Эксперимент: неслышимость и поддержка устройствами не гарантированы.</string>
+    <string name="messenger_mode_selected">Режим «%1$s» выбран. Приём перезапущен.</string>
+    <string name="messenger_mode_selected_no_capture">Режим «%1$s» выбран.</string>
+    <string name="messenger_mode_busy">Дождитесь окончания звука, чтобы сменить режим</string>
 
     <!-- Devices -->
     <string name="devices_title">Узлы</string>

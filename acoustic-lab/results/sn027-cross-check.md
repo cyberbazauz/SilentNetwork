@@ -1,6 +1,6 @@
 # SN-027: кросс-проверка Python ↔ Kotlin
 
-- Дата: 2026-11-03 19:41 UTC
+- Дата: 2026-11-04 19:53 UTC
 - Канал: файловый L0 (WAV), не воздух.
 - Проверка Data Link: Python WAV → Kotlin-декодер и Kotlin WAV → Python-декодер.
 - Проверка File Transfer v0: Python-файл → Kotlin-декодер → файл и SHA-256, затем Kotlin-файл → Python-декодер.
