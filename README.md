@@ -10,6 +10,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](acoustic-lab/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](apps/android/)
 [![Tests](https://img.shields.io/badge/tests-993%20%7C%200%20failures-brightgreen?style=for-the-badge)](#тесты)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Mesh](https://img.shields.io/badge/mesh-not%20ready-red?style=for-the-badge)](#чего-пока-нет)
 
 </div>
@@ -302,9 +303,14 @@ JSON с телефона независимо декодированы, CRC-16 �
 
 ## Лицензия
 
-Лицензия пока **не выбрана**. Код опубликован для просмотра и обсуждения;
-использование, распространение и модификация требуют согласования с автором.
-Это осознанное решение Product Owner, а не забытый файл `LICENSE`.
+Проект распространяется под лицензией **MIT** — см. [`LICENSE`](LICENSE).
+
+Ты можешь использовать, изменять, распространять и продавать этот код, в том
+числе в закрытых продуктах, при условии сохранения уведомления об авторских
+правах. Программное обеспечение предоставляется «как есть», без гарантий.
+
+Если используешь SilentNetwork в исследовании или проекте — буду рад ссылке
+на репозиторий.
 
 ---
 
